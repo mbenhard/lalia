@@ -38,6 +38,16 @@ const SMOKE_ROLES: RoleMap = ['tint', 'primary', 'accent', 'highlight']
 const fragment = (edge: Exclude<MistEdge, 'smoke'>) => /* glsl */ `
 const int EDGE = ${EDGES[edge]};
 const int SOFT = 0, WISP = 1, HAZE = 2, SPHERE = 3;
+// Where every tail has fully faded, in orb units, so a loud orb never runs into its canvas.
+const float LIMIT = 0.92;
+
+// 1 at u = 0 down to exactly 0 at u = 1, flat at both ends with a long, gentle toe, so a fade
+// never shows where it starts or where it ends.
+float falloff(float u) {
+  u = clamp(u, 0.0, 1.0);
+  float a = (1.0 - u) * (1.0 - u);
+  return a * a * (1.0 + 4.0 * u);
+}
 
 vec3 cloud(vec2 q, vec2 s, float detail, out float f) {
   float t = uPhase;
@@ -108,19 +118,20 @@ void main() {
     alpha = density;
     col = mix(glowTone(col), col, smoothstep(0.0, 0.6, density));
   } else if (EDGE == HAZE) {
-    float x = max(r - 0.62 * edge, 0.0) / (0.62 * edge);
-    alpha = exp(-1.6 * x * x) * (1.0 + 0.12 * n);
+    float inner = 0.55 * edge;
+    alpha = falloff((r - inner) / (LIMIT - inner)) * (1.0 + 0.12 * n);
     col.x += 0.05 * n * alpha;
     col = mix(glowTone(col), col, smoothstep(0.0, 0.6, alpha));
   } else {
     float soft = 0.16 + 0.1 * uGlow;
     // A trace of grain in the falloff keeps it airy; the rest of the edge stays smooth.
     float body = smoothstep(edge + soft, edge - soft * 0.6, r + n * 0.025);
-    body *= body * (3.0 - 2.0 * body);
-    float halo = glowAlpha(0.25 * uGlow * exp(-max(r - edge, 0.0) * 5.0));
+    // The glow starts under the body, so the hand-off from cloud to glow has no crease, and it
+    // is gone by LIMIT, so it never reaches the canvas edge as a flat smudge.
+    float halo = glowAlpha(0.3 * uGlow * smoothstep(LIMIT, edge - soft, r));
     col.x += 0.06 * n * body;
-    alpha = max(body, halo);
-    col = mix(glowTone(col), col, body);
+    alpha = body + halo * (1.0 - body);
+    col = mix(glowTone(col), col, body / max(alpha, 1e-4));
   }
 
   fragColor = orbColor(col, alpha);

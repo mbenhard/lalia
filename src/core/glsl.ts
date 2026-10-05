@@ -148,10 +148,17 @@ vec4 orbColor(vec3 lab, float alpha) {
   float vivid = smoothstep(0.06, 0.18, length(lab.yz));
   lab = vec3(lab.x - 0.05 * uLight, lab.yz * (1.0 + 0.3 * uLight * (1.0 - vivid)) * uSaturation);
   vec3 rgb = pow(clamp(oklabToLinear(lab), 0.0, 1.0), vec3(1.0 / 2.2));
-  // Dither hides 8-bit banding in soft gradients.
-  rgb = clamp(rgb + grain() / 255.0, 0.0, 1.0);
   alpha = clamp(alpha * smoothstep(1.0, 0.75, length(orbUV())), 0.0, 1.0);
-  return vec4(rgb * alpha, alpha);
+  // Dither hides 8-bit banding in soft gradients. It goes on after premultiplying, because a
+  // faint tail is quantized in alpha too and those steps show as rings on light pages. Color
+  // and alpha get separate rolls so their errors cannot cancel, and the dither fades out at
+  // both ends so clear pixels stay clear and solid ones stay solid.
+  vec2 roll = gl_FragCoord.xy + mod(floor(uTime * 24.0), 64.0) * 17.31;
+  float dc = hash12(roll + 41.7) + hash12(roll + 93.1) - 1.0;
+  float da = hash12(roll + 151.3) + hash12(roll + 207.9) - 1.0;
+  float d = min(alpha * 255.0, 1.0) / 255.0;
+  float a = clamp(alpha + da * d * min((1.0 - alpha) * 255.0, 1.0), 0.0, 1.0);
+  return vec4(clamp(rgb * alpha + dc * d, 0.0, a), a);
 }
 `
 

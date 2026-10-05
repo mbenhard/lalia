@@ -22,7 +22,7 @@ void main() {
   float t = uPhase;
   float breathe = 0.5 + 0.5 * sin(t * 1.6);
   float pulse = uPulse * (0.5 + 0.5 * sin(uTime * 3.0));
-  float R = 0.4 * uScale
+  float R = 0.5 * uScale
     * (1.0 + 0.04 * breathe + 0.12 * uAudio.x + 0.04 * uAudio.y - 0.1 * pulse);
 
   vec2 s = p / R;

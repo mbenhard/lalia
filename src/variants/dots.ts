@@ -27,11 +27,14 @@ const int HEX = 0, GRILLE = 1, MATRIX = 2;
 const int VOICE = ${VOICES[voice]};
 const int RINGS = 0, EQ = 1, WAVE = 2, SPARKLE = 3;
 // Share of the radial swells kept underneath another voice effect.
-const float RADIAL = ${voice === 'rings' ? '1.0' : '0.3'};
+const float RADIAL = ${voice !== 'rings' ? '0.3' : style === 'hex' ? '0.7' : '1.0'};
 // How far the resting print steps back while the voice effect is up, so the effect reads clearly.
 const float RECEDE = ${{ rings: '0.0', eq: '0.55', wave: '0.35', sparkle: '0.45' }[voice]};
-// Dot pitch of the hex and grille prints, and of the matrix, in orb units.
-const float SP = 1.12 / 22.0, MS = 1.12 / 20.0;
+// Dot pitch of the hex print, the grille and the matrix, in orb units. The hex print is the
+// coarsest, so its dots have room to breathe.
+const float HP = 1.12 / 19.0, SP = 1.12 / 22.0, MS = 1.12 / 20.0;
+// Largest hex dot as a share of the pitch; below 0.5 neighbors never touch.
+const float HEX_DOT = 0.42;
 
 float R, px, breathe;
 
@@ -46,7 +49,7 @@ float speech(vec2 c, vec2 s, float h) {
   if (VOICE == EQ) {
     // Columns are laid on the dot pitch in orb units, so they hold still while the orb breathes.
     // Hex columns are three dots wide with a gap; matrix columns are two LEDs wide, back to back.
-    float bw = 2.0 * (STYLE == MATRIX ? MS : SP);
+    float bw = 2.0 * (STYLE == MATRIX ? MS : STYLE == HEX ? HP : SP);
     float ax = abs(c.x) / bw + (STYLE == MATRIX ? 0.0 : 0.5);
     float k = floor(ax);
     float gap = STYLE == MATRIX ? 1.0 : smoothstep(0.5, 0.34, abs(ax - k - 0.5));
@@ -178,7 +181,7 @@ void main() {
   breathe = 0.5 * sin(t * 1.4) + 0.5 * sin(uTime * 0.7);
   R = 0.56 * uScale * (1.0 + 0.03 * breathe + 0.06 * uAudio.y);
   // Spacing is tied to orb space, not pixels, so the print reads the same at any size.
-  float sp = SP;
+  float sp = STYLE == HEX ? HP : SP;
   vec4 o = vec4(0.0);
 
   if (STYLE == HEX) {
@@ -188,8 +191,8 @@ void main() {
     // A hex lattice is two offset rectangular lattices; the nearer dot of the two wins.
     vec2 ia = floor(q / cell + 0.5);
     vec2 ib = floor(q / cell) + 0.5;
-    vec4 a = halftone(q, ia * cell, ia * cell * g, ia, sp, 0.5, 0.0);
-    vec4 b = halftone(q, ib * cell, ib * cell * g, ib + 31.7, sp, 0.5, 0.0);
+    vec4 a = halftone(q, ia * cell, ia * cell * g, ia, sp, HEX_DOT, 0.0);
+    vec4 b = halftone(q, ib * cell, ib * cell * g, ib + 31.7, sp, HEX_DOT, 0.0);
     o = a.a >= b.a ? a : b;
   } else if (STYLE == GRILLE) {
     float ri = floor(r / sp + 0.5);
