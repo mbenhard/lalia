@@ -1,4 +1,8 @@
+import type { RoleMap } from '../core/scheme.js'
 import { shaderVariant } from '../core/variant.js'
+
+// All four slots form one looping gradient, so they should be neighbors of similar weight.
+const SILK_ROLES: RoleMap = ['primary', 'secondary', 'accent', 'tint']
 
 interface SilkTuning {
   /** How far colors may stray from the palette average (1 = full palette). */
@@ -68,26 +72,14 @@ void main() {
 export const silk = shaderVariant({
   name: 'silk',
   colors: ['#8fb4ff', '#a99bff', '#c6b0ff', '#b8e0ff'],
+  roles: SILK_ROLES,
   fragment: fragment({ spread: 0.7, travel: 0.3, sheen: 0.09, iridescence: 0.6 }),
-})
-
-/** The full-contrast, iridescent version. */
-export const silkVivid = shaderVariant({
-  name: 'silk-vivid',
-  colors: ['#7cf5ff', '#6e8bff', '#c86dff', '#ffd1f0'],
-  fragment: fragment({ spread: 1, travel: 0.5, sheen: 0.16, iridescence: 1.4 }),
 })
 
 /** Fewer, broader folds: one slow ripple of satin. */
 export const silkSimple = shaderVariant({
   name: 'silk-simple',
   colors: ['#8fb4ff', '#a99bff', '#c6b0ff', '#b8e0ff'],
+  roles: SILK_ROLES,
   fragment: fragment({ spread: 0.65, travel: 0.25, sheen: 0.08, iridescence: 0.5, detail: 0.55 }),
-})
-
-/** Almost still: a single soft gradient with one sheen line passing through. */
-export const silkMinimal = shaderVariant({
-  name: 'silk-minimal',
-  colors: ['#9db8ff', '#b3a6ff', '#cdb8ff', '#c4e4ff'],
-  fragment: fragment({ spread: 0.55, travel: 0.2, sheen: 0.07, iridescence: 0.35, detail: 0.28 }),
 })

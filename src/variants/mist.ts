@@ -1,21 +1,43 @@
+import type { RoleMap } from '../core/scheme.js'
 import { shaderVariant } from '../core/variant.js'
+import { volume } from './volume.js'
 
 /**
  * How the cloud meets the page.
- * - `soft`     smooth falloff with a trace of grain
- * - `dissolve` the edge breaks into fine grain, thinning like blown sand
- * - `wisp`     tendrils peel off and drift outward like smoke
- * - `haze`     a dense heart with a long, breath-like tail
- * - `radial`   zoom-blur streaks that grow toward the rim
- * - `sphere`   held inside a glass ball
+ * - `soft`   smooth falloff with a trace of grain
+ * - `wisp`   tendrils peel off and drift outward like smoke
+ * - `haze`   a dense heart with a long, breath-like tail
+ * - `sphere` held inside a glass ball
+ * - `smoke`  a slow fog volume lit from above, with real depth
  */
-export type MistEdge = 'soft' | 'dissolve' | 'wisp' | 'haze' | 'radial' | 'sphere'
+export type MistEdge = 'soft' | 'wisp' | 'haze' | 'sphere' | 'smoke'
 
-const EDGES: Record<MistEdge, number> = { soft: 0, dissolve: 1, wisp: 2, haze: 3, radial: 4, sphere: 5 }
+const EDGES: Record<Exclude<MistEdge, 'smoke'>, number> = { soft: 0, wisp: 1, haze: 2, sphere: 3 }
 
-const fragment = (edge: MistEdge) => /* glsl */ `
+const SMOKE = /* glsl */ `
+float medium(vec3 pos, out vec3 c) {
+  float core = 1.0 - length(pos);
+  float t = uPhase;
+
+  vec3 q = pos;
+  q.xz = rot(uSpin * 0.6 + t * 0.15) * q.xz;
+  q.xy = rot(0.3) * q.xy;
+  q += 0.35 * vec3(
+    snoise(q * 0.9 + vec3(0.0, t * 0.15, 0.0)),
+    snoise(q * 0.9 + vec3(7.0, 0.0, t * 0.15)),
+    snoise(q * 0.9 + vec3(t * 0.15, 13.0, 0.0)));
+  float n = fbm2(q * (0.9 + 0.3 * uTurbulence) + vec3(0.0, t * 0.12, 0.0));
+  c = palette(0.15 * n + 0.3 * (1.0 - core) + t * 0.015);
+  c = vec3(c.x + 0.16 * pos.y + 0.12 * core * (0.5 + uAudio.x), c.yz * 0.85);
+  return 0.7 * smoothstep(-0.2, 0.8, 0.5 * n + core * (1.3 + 0.5 * uAudio.y) - 0.15) * smoothstep(0.0, 0.4, core);
+}
+`
+const SMOKE_COLORS = ['#c9b8ff', '#9fb6ff', '#ffc4dc', '#f6f0ff']
+const SMOKE_ROLES: RoleMap = ['tint', 'primary', 'accent', 'highlight']
+
+const fragment = (edge: Exclude<MistEdge, 'smoke'>) => /* glsl */ `
 const int EDGE = ${EDGES[edge]};
-const int SOFT = 0, DISSOLVE = 1, WISP = 2, HAZE = 3, RADIAL = 4, SPHERE = 5;
+const int SOFT = 0, WISP = 1, HAZE = 2, SPHERE = 3;
 
 vec3 cloud(vec2 q, vec2 s, float detail, out float f) {
   float t = uPhase;
@@ -51,23 +73,7 @@ void main() {
   mat2 swirl = rot(uSpin * 0.5 + uSwirl * 1.8 * (1.0 - smoothstep(0.0, R, r)));
 
   float f;
-  vec3 col;
-  if (EDGE == RADIAL) {
-    // Zoom blur: average the cloud along the ray to the center, more so toward the rim.
-    float spread = 0.45 * smoothstep(0.2 * R, 1.3 * R, r);
-    col = vec3(0.0);
-    f = 0.0;
-    for (int i = 0; i < 5; i++) {
-      float k = 1.0 - spread * float(i) / 4.0;
-      float fi;
-      col += cloud(swirl * base * k, s * k, detail, fi);
-      f += fi;
-    }
-    col /= 5.0;
-    f /= 5.0;
-  } else {
-    col = cloud(swirl * base, s, detail, f);
-  }
+  vec3 col = cloud(swirl * base, s, detail, f);
 
   float n = grain();
   float rim = snoise(vec3(dir * 1.1, t * 0.45));
@@ -87,16 +93,6 @@ void main() {
     float glow = glowAlpha(0.3 * uGlow * exp(-max(d, 0.0) * 9.0));
     alpha = body + glow * (1.0 - body);
     col = mix(glowTone(col), col, body / max(alpha, 1e-4));
-  } else if (EDGE == DISSOLVE) {
-    float soft = 0.26 + 0.1 * uGlow;
-    float body = smoothstep(edge + soft, edge - soft * 0.5, r);
-    // Each pixel survives with probability "body": a stipple that thins toward the rim.
-    float speck = hash12(floor(gl_FragCoord.xy) + mod(floor(uTime * 12.0), 32.0) * 9.17);
-    float stipple = smoothstep(speck - 0.1, speck + 0.1, body);
-    alpha = mix(body * body, stipple, 0.7);
-    col.x += 0.05 * n * body;
-    alpha = max(alpha, glowAlpha(0.15 * uGlow * exp(-max(r - edge, 0.0) * 6.0)));
-    col = mix(glowTone(col), col, body);
   } else if (EDGE == WISP) {
     // The boundary is a noise threshold scrolling outward, so tendrils peel away and fade.
     // Low-octave noise and a wide threshold keep tendrils soft rather than shredded.
@@ -117,9 +113,7 @@ void main() {
     col.x += 0.05 * n * alpha;
     col = mix(glowTone(col), col, smoothstep(0.0, 0.6, alpha));
   } else {
-    // Radial: the falloff length varies quickly with angle, so the rim reads as fine light streaks.
-    float streak = EDGE == RADIAL ? 0.5 + 0.5 * snoise(vec3(dir * 6.0, t * 0.2)) : 0.0;
-    float soft = (EDGE == RADIAL ? 0.12 + 0.3 * streak * streak : 0.16) + 0.1 * uGlow;
+    float soft = 0.16 + 0.1 * uGlow;
     // A trace of grain in the falloff keeps it airy; the rest of the edge stays smooth.
     float body = smoothstep(edge + soft, edge - soft * 0.6, r + n * 0.025);
     body *= body * (3.0 - 2.0 * body);
@@ -135,15 +129,19 @@ void main() {
 
 const COLORS = ['#ffb38a', '#ff7a9c', '#b9a3ff', '#fff1e6']
 
-export function createMist(edge: MistEdge = 'soft', colors: readonly string[] = COLORS) {
-  return shaderVariant({ name: edge === 'soft' ? 'mist' : `mist-${edge}`, colors, fragment: fragment(edge) })
+export function createMist(edge: MistEdge = 'soft', colors?: readonly string[]) {
+  const name = edge === 'soft' ? 'mist' : `mist-${edge}`
+  if (edge === 'smoke') {
+    return shaderVariant({ name, colors: colors ?? SMOKE_COLORS, roles: SMOKE_ROLES, fragment: volume(SMOKE, 1.8) })
+  }
+  return shaderVariant({ name, colors: colors ?? COLORS, fragment: fragment(edge) })
 }
 
 /** A grainy, airy gradient cloud whose edge melts away. */
 export const mist = createMist()
-export const mistDissolve = createMist('dissolve')
 export const mistWisp = createMist('wisp')
 export const mistHaze = createMist('haze')
-export const mistRadial = createMist('radial')
 /** The same cloud, held inside a glass ball. */
 export const mistSphere = createMist('sphere')
+/** Fog raymarched through a sphere, so it has real depth rather than a painted gradient. */
+export const mistSmoke = createMist('smoke')

@@ -1,18 +1,17 @@
 import { shaderVariant } from '../core/variant.js'
+import type { RoleMap } from '../core/scheme.js'
 
 /**
- * - `pearl`   lit core with a drifting inner gradient
- * - `eclipse` a dark disk with a bright, streaming corona
- * - `ripple`  rings travel through the core and out into the glow as it speaks
- * - `duo`     two colored lights orbit the sphere
+ * - `pearl` lit core with a drifting inner gradient
+ * - `duo`   two colored lights orbit the sphere
  */
-export type LumenStyle = 'pearl' | 'eclipse' | 'ripple' | 'duo'
+export type LumenStyle = 'pearl' | 'duo'
 
-const STYLES: Record<LumenStyle, number> = { pearl: 0, eclipse: 1, ripple: 2, duo: 3 }
+const STYLES: Record<LumenStyle, number> = { pearl: 0, duo: 1 }
 
 const fragment = (style: LumenStyle) => /* glsl */ `
 const int STYLE = ${STYLES[style]};
-const int PEARL = 0, ECLIPSE = 1, RIPPLE = 2, DUO = 3;
+const int PEARL = 0, DUO = 1;
 
 void main() {
   vec2 p = orbUV();
@@ -23,7 +22,7 @@ void main() {
   float t = uPhase;
   float breathe = 0.5 + 0.5 * sin(t * 1.6);
   float pulse = uPulse * (0.5 + 0.5 * sin(uTime * 3.0));
-  float R = (STYLE == ECLIPSE ? 0.36 : 0.4) * uScale
+  float R = 0.4 * uScale
     * (1.0 + 0.04 * breathe + 0.12 * uAudio.x + 0.04 * uAudio.y - 0.1 * pulse);
 
   vec2 s = p / R;
@@ -37,17 +36,7 @@ void main() {
   float reach = R * (0.16 + 0.14 * uGlow + 0.3 * uAudio.x + 0.06 * breathe * uEnergy);
   float strength = 0.4 + 0.15 * uEnergy;
 
-  if (STYLE == ECLIPSE) {
-    // Nearly black disk with a faint earthshine rim.
-    core = vec3(0.16 + 0.06 * uLight, uColors[1].yz * 0.25);
-    core.x += 0.08 * rim * (1.0 + uAudio.x);
-    // Streamers: the corona reaches further at some angles than others.
-    float streamer = fbm2(vec3(rot(uSpin * 0.4) * dir * 1.6, t * 0.35));
-    reach *= 1.1 + 0.9 * max(streamer, 0.0) + 0.6 * uAudio.y;
-    aura = palette(ang / 6.28318 + uSpin * 0.05 + 0.15 * streamer);
-    aura.x += 0.1;
-    strength = 0.75 + 0.25 * uEnergy;
-  } else if (STYLE == DUO) {
+  if (STYLE == DUO) {
     float a = uSpin * 1.2 + t * 0.6;
     vec3 la = normalize(vec3(cos(a), sin(a) * 0.6, 0.55));
     vec3 lb = vec3(-la.xy, la.z);
@@ -73,50 +62,40 @@ void main() {
     // Wrapped key light: a soft terminator that never falls into shadow.
     core.x += (dot(n, L) * 0.5 - 0.1) * 0.16;
     core = vec3(core.x + 0.06 * rim * (1.0 - uLight), core.yz * (1.0 + 0.25 * rim));
-    if (STYLE == RIPPLE) {
-      float wave = sin(length(s) * 12.0 - t * 7.0);
-      core.x += wave * (0.025 + 0.09 * uAudio.x) * z;
-    }
   }
   core.x += 0.05 * uAudio.x;
 
   // The edge melts over a few pixels into a glow that starts at the same tone.
-  float soft = 1.5 * px + (STYLE == ECLIPSE ? 0.008 : 0.02) * R;
+  float soft = 1.5 * px + 0.02 * R;
   float body = smoothstep(R + soft, R - soft, r);
   float fall = exp(-max(r - R, 0.0) / reach);
-  float glow = strength * fall * fall;
-  if (STYLE == ECLIPSE) {
-    // The "diamond ring": a hairline of light hugging the disk.
-    glow += 0.6 * exp(-abs(r - R) / (1.5 * px + 0.012 * R));
-  }
-  if (STYLE == RIPPLE) {
-    float echo = sin((r - R) / R * 9.0 - t * 7.0);
-    glow *= 1.0 + (0.15 + 0.6 * uAudio.x) * echo * smoothstep(0.0, 0.1 * R, r - R);
-  }
-  glow = glowAlpha(min(glow, 1.0));
-  aura = glowTone(STYLE == ECLIPSE ? aura : mix(aura, core, 0.35 * fall));
+  float glow = glowAlpha(min(strength * fall * fall, 1.0));
+  aura = glowTone(mix(aura, core, 0.35 * fall));
 
   float alpha = body + glow * (1.0 - body);
   fragColor = orbColor(mix(aura, core, body / max(alpha, 1e-4)), alpha);
 }
 `
 
+// The scheme role behind each color slot, matching how the shader reads it.
+const ROLES: Record<LumenStyle, RoleMap> = {
+  pearl: ['tint', 'primary', 'secondary', 'accent'],
+  duo: ['tint', 'primary', 'accent', 'highlight'],
+}
+
 export function createLumen(style: LumenStyle = 'pearl', colors?: readonly string[]) {
   const palettes: Record<LumenStyle, readonly string[]> = {
     pearl: ['#ffe3c2', '#ff9a76', '#ff6f91', '#9d8cff'],
-    eclipse: ['#ffd29a', '#ff8a5c', '#ff5f8f', '#ffe9c7'],
-    ripple: ['#d8f3ff', '#8fc3ff', '#7aa2ff', '#b59cff'],
     duo: ['#efe6ff', '#ff7a9c', '#5fd4ff', '#ffffff'],
   }
   return shaderVariant({
     name: style === 'pearl' ? 'lumen' : `lumen-${style}`,
     colors: colors ?? palettes[style],
+    roles: ROLES[style],
     fragment: fragment(style),
   })
 }
 
 /** A pearl-like core with a slow inner gradient, inside a close, breathing aura. */
 export const lumen = createLumen()
-export const lumenEclipse = createLumen('eclipse')
-export const lumenRipple = createLumen('ripple')
 export const lumenDuo = createLumen('duo')

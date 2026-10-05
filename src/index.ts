@@ -19,6 +19,19 @@ export {
   type AudioSampler,
 } from './core/audio.js'
 export { createVoiceSimulator } from './core/simulator.js'
+export {
+  COLOR_ROLES,
+  createScheme,
+  DEFAULT_ROLES,
+  oklch,
+  schemeColors,
+  type ColorRole,
+  type ColorScheme,
+  type Harmony,
+  type RoleMap,
+  type SchemeColors,
+  type SchemeOptions,
+} from './core/scheme.js'
 export { DEFAULT_TRANSITION, type SpringConfig } from './core/spring.js'
 export {
   createProgram,

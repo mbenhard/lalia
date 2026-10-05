@@ -13,6 +13,7 @@ export interface OrbProps extends OrbOptions {
 export function Orb({
   variant,
   state = 'idle',
+  scheme,
   colors,
   input,
   output,
@@ -32,7 +33,7 @@ export function Orb({
   // Created once; the effects below forward prop changes so every change animates.
   useEffect(() => {
     const engine = new OrbEngine(canvasRef.current!, {
-      variant, state, colors, input, output, motion, transition, appearance, maxPixelRatio,
+      variant, state, scheme, colors, input, output, motion, transition, appearance, maxPixelRatio,
     })
     engineRef.current = engine
     return () => {
@@ -48,6 +49,9 @@ export function Orb({
   useEffect(() => {
     engineRef.current?.setState(state)
   }, [state])
+  useEffect(() => {
+    engineRef.current?.setScheme(scheme)
+  }, [scheme])
   useEffect(() => {
     engineRef.current?.setColors(colors)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -79,4 +83,4 @@ export function Orb({
   )
 }
 
-export type { OrbState, Variant, AudioSampler } from '../index.js'
+export type { OrbState, Variant, AudioSampler, ColorScheme } from '../index.js'

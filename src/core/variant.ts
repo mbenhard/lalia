@@ -1,6 +1,7 @@
 import type { AudioFrame } from './audio.js'
 import { FRAGMENT_PRELUDE, FULLSCREEN_VERTEX, VERTEX_PRELUDE } from './glsl.js'
-import { MOTION_KEYS, type Motion, type MotionKey, type MotionOverrides } from './states.js'
+import type { RoleMap } from './scheme.js'
+import { MOTION_KEYS, type Motion, type MotionKey, type MotionOverrides, type OrbState } from './states.js'
 
 /** Everything a variant needs to draw one frame. Reused across frames; do not keep references. */
 export interface OrbFrame {
@@ -16,6 +17,10 @@ export interface OrbFrame {
   spin: number
   /** Background lightness: 0 on dark pages, 1 on light pages, eased in between. */
   light: number
+  /** Syllable attack: jumps toward 1 when speech lands, then fades over ~0.25 s. */
+  onset: number
+  /** The state being entered. `motion` is already eased toward it; anything else keyed on it should ease too. */
+  state: OrbState
   motion: Readonly<Motion>
   /** Smoothed audio, already weighted by state (mic while listening, agent while speaking). */
   audio: Readonly<AudioFrame>
@@ -32,6 +37,8 @@ export interface Variant {
   name: string
   /** Default palette, up to four CSS colors. */
   colors: readonly string[]
+  /** The scheme role each color slot plays. Default `['primary', 'secondary', 'accent', 'highlight']`. */
+  roles?: RoleMap
   /** Per-state tweaks layered over the default motion. */
   motion?: MotionOverrides
   setup(gl: WebGL2RenderingContext): VariantRenderer
@@ -86,6 +93,7 @@ export function setOrbUniforms(gl: WebGL2RenderingContext, p: Program, frame: Or
   gl.uniform1f(p.uniform('uPhase'), frame.phase)
   gl.uniform1f(p.uniform('uSpin'), frame.spin)
   gl.uniform1f(p.uniform('uLight'), frame.light)
+  gl.uniform1f(p.uniform('uOnset'), frame.onset)
   for (const [key, name] of MOTION_UNIFORMS) gl.uniform1f(p.uniform(name), frame.motion[key])
   gl.uniform4f(p.uniform('uAudio'), audio.level, audio.low, audio.mid, audio.high)
   gl.uniform3fv(p.uniform('uColors'), frame.colors)
@@ -94,16 +102,18 @@ export function setOrbUniforms(gl: WebGL2RenderingContext, p: Program, frame: Or
 export interface ShaderVariantOptions {
   name: string
   colors: readonly string[]
+  roles?: RoleMap
   motion?: MotionOverrides
   /** Fragment body. `FRAGMENT_PRELUDE` (uniforms, noise, `orbUV`, `orbColor`, …) is prepended. */
   fragment: string
 }
 
 /** A variant drawn by a single fullscreen fragment shader. */
-export function shaderVariant({ name, colors, motion, fragment }: ShaderVariantOptions): Variant {
+export function shaderVariant({ name, colors, roles, motion, fragment }: ShaderVariantOptions): Variant {
   return {
     name,
     colors,
+    roles,
     motion,
     setup(gl) {
       const program = createProgram(gl, FULLSCREEN_VERTEX, FRAGMENT_PRELUDE + fragment)

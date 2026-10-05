@@ -16,6 +16,10 @@
       "types": "./dist/variants/index.d.ts",
       "import": "./dist/variants/index.js"
     },
+    "./schemes": {
+      "types": "./dist/schemes.d.ts",
+      "import": "./dist/schemes.js"
+    },
     "./react": {
       "types": "./dist/react/index.d.ts",
       "import": "./dist/react/index.js"

@@ -1,3 +1,5 @@
+import { Spring, type SpringConfig } from '../core/spring.js'
+import type { OrbState } from '../core/states.js'
 import { createProgram, FRAGMENT_PRELUDE, setOrbUniforms, VERTEX_PRELUDE, type Variant } from '../core/variant.js'
 
 export type SwarmShape = 'cloud' | 'sphere' | 'rings'
@@ -10,6 +12,8 @@ export interface RingSpec {
   turn: number
   /** Radius relative to the orb. Default 1. */
   radius?: number
+  /** How far the ring's plane wanders over time. Default 0. */
+  wander?: number
 }
 
 export interface SwarmOptions {
@@ -18,8 +22,11 @@ export interface SwarmOptions {
   colors?: readonly string[]
   /** Ring layout for `shape: 'rings'`. */
   rings?: readonly RingSpec[]
-  /** How much the ring planes wander over time. Default 0. */
-  precess?: number
+  /**
+   * Ring layouts for particular states, each with as many rings as `rings`. On a state change
+   * the rings glide to the new layout, inner rings leading. States left out use `rings`.
+   */
+  poses?: Partial<Record<OrbState, readonly RingSpec[]>>
   /** Radius of a particle planet inside the rings, relative to the orb. Default 0 (none). */
   core?: number
   name?: string
@@ -32,16 +39,18 @@ const DEFAULT_RINGS: RingSpec[] = [
   { tilt: 0.85, turn: 4.189 },
 ]
 
-const glslArray = (values: number[]) => `float[${values.length}](${values.map((v) => v.toFixed(4)).join(', ')})`
+/** Outer rings are heavier and follow a beat later, so a new layout unfolds from the inside out. */
+const ringSpring = (k: number): SpringConfig => {
+  const stiffness = 15 / (1 + 0.3 * k)
+  return { stiffness, damping: 1.7 * Math.sqrt(stiffness) }
+}
 
-const vertex = (shape: SwarmShape, rings: readonly RingSpec[], precess: number, core: number) => /* glsl */ `${VERTEX_PRELUDE}
+const vertex = (shape: SwarmShape, rings: number, core: number) => /* glsl */ `${VERTEX_PRELUDE}
 const int SHAPE = ${SHAPES[shape]};
-const int RINGS = ${rings.length};
+const int RINGS = ${rings};
 const float CORE = ${core.toFixed(3)};
-const float TILT[${rings.length}] = ${glslArray(rings.map((r) => r.tilt))};
-const float TURN[${rings.length}] = ${glslArray(rings.map((r) => r.turn))};
-const float RADIUS[${rings.length}] = ${glslArray(rings.map((r) => r.radius ?? 1))};
-const float PRECESS = ${precess.toFixed(3)};
+
+uniform vec4 uRings[RINGS]; // tilt, turn, radius, wander
 
 in vec4 aSeed; // xyz: base position, w: ring index + per-particle random in the fraction
 out vec3 vColor;
@@ -57,15 +66,16 @@ void main() {
 
   bool planet = SHAPE == 2 && int(ring) >= RINGS;
   if (SHAPE == 2 && !planet) {
-    // Each ring orbits at its own pace and tilt; speech ripples along its length.
+    // Each ring orbits at its own pace; speech ripples along its length.
+    vec4 pose = uRings[int(ring)];
     dir.xz = rot(uSpin * (0.8 + 0.3 * ring) + t * (0.25 + 0.1 * ring)) * dir.xz;
     float along = atan(dir.z, dir.x);
     float ripple = sin(along * 5.0 - t * 6.0 + ring * 2.0) * (0.012 * uTurbulence + 0.05 * uAudio.z);
     float spread = (rnd - 0.5) * (0.035 + 0.05 * uTurbulence + 0.1 * uAudio.y);
-    int k = int(ring);
-    dir *= RADIUS[k] * (1.0 + ripple + spread + 0.015 * snoise(dir * 2.0 + t * 0.4));
-    dir.yz = rot(TILT[k] + PRECESS * 0.35 * sin(t * 0.21 + ring * 1.7)) * dir.yz;
-    dir.xy = rot(TURN[k] + t * (0.05 + PRECESS * 0.05 * (1.0 + ring))) * dir.xy;
+    dir *= pose.z * (1.0 + ripple + spread + 0.015 * snoise(dir * 2.0 + t * 0.4));
+    // Sway and wander are bounded so a ring always comes back to its pose.
+    dir.yz = rot(pose.x + pose.w * 0.35 * sin(t * 0.21 + ring * 1.7)) * dir.yz;
+    dir.xy = rot(pose.y + 0.1 * sin(t * 0.08) + pose.w * 0.5 * sin(t * 0.13 + ring * 2.4)) * dir.xy;
   } else {
     // The clean sphere turns rigidly so its lattice stays legible.
     float speed = SHAPE == 0 ? 0.5 + rnd : 1.0;
@@ -137,16 +147,23 @@ export function createSwarm({
   count = 6000,
   colors,
   rings = DEFAULT_RINGS,
-  precess = 0,
+  poses = {},
   core = 0,
   name,
 }: SwarmOptions = {}): Variant {
+  for (const [state, pose] of Object.entries(poses)) {
+    if (pose.length !== rings.length) {
+      throw new Error(`[speaking-orb] swarm pose "${state}" has ${pose.length} rings, expected ${rings.length}`)
+    }
+  }
   return {
     name: name ?? (shape === 'cloud' ? 'swarm' : `swarm-${shape}`),
     colors: colors ?? ['#a5b8ff', '#5b4bff', '#5ff0ff', '#ffffff'],
+    // Slot 1 colors the far side, so it takes the shadow role.
+    roles: ['primary', 'deep', 'accent', 'highlight'],
     motion: { thinking: { swirl: 1.4, turbulence: 0.7 } },
     setup(gl) {
-      const program = createProgram(gl, vertex(shape, rings, precess, core), FRAGMENT)
+      const program = createProgram(gl, vertex(shape, rings.length, core), FRAGMENT)
       const vao = gl.createVertexArray()
       const buffer = gl.createBuffer()
       gl.bindVertexArray(vao)
@@ -157,10 +174,30 @@ export function createSwarm({
       gl.vertexAttribPointer(location, 4, gl.FLOAT, false, 0, 0)
       gl.bindVertexArray(null)
 
+      const uRings = program.uniform('uRings')
+      const layout = new Float32Array(rings.length * 4)
+      const springs = Array.from(layout, () => new Spring(0))
+      const configs = rings.map((_, k) => ringSpring(k))
+      let first = true
+
       return {
         render(frame) {
+          const pose = poses[frame.state] ?? rings
+          pose.forEach(({ tilt, turn, radius = 1, wander = 0 }, k) => {
+            const targets = [tilt, turn, radius, wander]
+            for (let j = 0; j < 4; j++) {
+              const spring = springs[k * 4 + j]!
+              spring.target = targets[j]!
+              if (first) spring.snap()
+              else spring.step(frame.delta, configs[k]!)
+              layout[k * 4 + j] = spring.value
+            }
+          })
+          first = false
+
           gl.useProgram(program.program)
           setOrbUniforms(gl, program, frame)
+          gl.uniform4fv(uRings, layout)
           gl.enable(gl.BLEND)
           // Additive glow on dark pages; on light pages added light vanishes, so points layer like ink.
           if (frame.light > 0.5) gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
@@ -184,37 +221,33 @@ export const swarm = createSwarm()
 export const swarmSphere = createSwarm({ shape: 'sphere', count: 4000 })
 export const swarmRings = createSwarm({ shape: 'rings', count: 4500 })
 
-/** Classic atom: three thin ellipses crossing at 60°. */
-export const swarmAtom = createSwarm({
-  shape: 'rings',
-  name: 'swarm-atom',
-  count: 4500,
-  rings: [
-    { tilt: 0.32, turn: 0 },
-    { tilt: 0.32, turn: 1.047 },
-    { tilt: 0.32, turn: 2.094 },
-  ],
-})
-
-/** A particle planet inside concentric bands that share one tilted plane. */
+/** A particle planet inside concentric bands that share one shallow plane, rising to the right. */
 export const swarmSaturn = createSwarm({
   shape: 'rings',
   name: 'swarm-saturn',
   count: 8000,
   core: 0.52,
-  rings: [0.86, 1.0, 1.12, 1.24].map((radius) => ({ tilt: 0.5, turn: 0.35, radius })),
+  rings: [0.86, 1.0, 1.12, 1.24].map((radius) => ({ tilt: 0.32, turn: -0.22, radius })),
 })
 
-/** Orbits at different radii whose planes slowly wander and realign. */
+const orbit = (tilt: number[], turn: number[], radius: number[], wander: number): RingSpec[] =>
+  tilt.map((_, k) => ({ tilt: tilt[k]!, turn: turn[k]!, radius: radius[k]!, wander }))
+
+/**
+ * Three orbits that rearrange for every state: wandering at rest, folding into one band while
+ * connecting, opening into concentric circles to listen, locking into a gimbal to think,
+ * fanning out like an atom to speak, and lying down flat when muted.
+ */
 export const swarmOrbit = createSwarm({
   shape: 'rings',
   name: 'swarm-orbit',
   count: 4500,
-  precess: 1,
-  rings: [
-    { tilt: 0.5, turn: 0, radius: 0.86 },
-    { tilt: 0.95, turn: 2.3, radius: 1 },
-    { tilt: 1.35, turn: 4.1, radius: 1.14 },
-  ],
+  rings: orbit([0.5, 0.95, 1.35], [0, -0.84, 0.96], [0.86, 1, 1.14], 1),
+  poses: {
+    connecting: orbit([0.5, 0.5, 0.5], [-0.3, -0.3, -0.3], [0.7, 0.95, 1.2], 0.1),
+    listening: orbit([1.3, 1.3, 1.3], [0, 0, 0], [0.7, 0.95, 1.2], 0.15),
+    thinking: orbit([0.3, 0.3, 1.45], [0, -1.571, 0], [1, 1, 1], 0.35),
+    speaking: orbit([0.55, 0.55, 0.55], [0, -1.047, 1.047], [1.06, 1.06, 1.06], 0.2),
+    muted: orbit([0.2, 0.2, 0.2], [0, 0, 0], [0.7, 0.88, 1.06], 0),
+  },
 })
-

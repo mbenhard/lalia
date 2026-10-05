@@ -1,6 +1,7 @@
 import { detectLightness, type Appearance } from './appearance.js'
 import type { AudioFrame, AudioSampler } from './audio.js'
 import { PALETTE_SIZE, writePalette } from './color.js'
+import { DEFAULT_ROLES, schemeColors, type ColorScheme } from './scheme.js'
 import { clamp01, damp, DEFAULT_TRANSITION, Spring, type SpringConfig } from './spring.js'
 import { MOTION_KEYS, resolveMotion, type Motion, type MotionKey, type MotionOverrides, type OrbState } from './states.js'
 import type { OrbFrame, Variant, VariantRenderer } from './variant.js'
@@ -8,7 +9,9 @@ import type { OrbFrame, Variant, VariantRenderer } from './variant.js'
 export interface OrbOptions {
   variant: Variant
   state?: OrbState
-  /** Up to four CSS colors. Defaults to the variant's palette. */
+  /** A color scheme; each design maps its roles onto its own color slots. */
+  scheme?: ColorScheme
+  /** Up to four CSS colors, used as-is. Overrides `scheme` and the variant's palette. */
   colors?: readonly string[]
   /** Microphone audio. Drives the orb while listening. */
   input?: AudioSampler | null
@@ -28,6 +31,8 @@ const owners = new WeakMap<HTMLCanvasElement, OrbEngine>()
 
 const ATTACK = 0.03
 const RELEASE = 0.2
+const ONSET_DECAY = 0.25
+const ONSET_RATE = 3
 const COLOR_RATE = 3
 const APPEARANCE_RATE = 4
 const APPEARANCE_PROBE = 0.5
@@ -43,9 +48,11 @@ export class OrbEngine {
   private input: AudioSampler | null
   private output: AudioSampler | null
   private customColors: readonly string[] | undefined
+  private scheme: ColorScheme | undefined
   private appearance: Appearance
   private lightTarget = 0
   private probeIn = 0
+  private levelAverage = 0
   private readonly maxPixelRatio: number
 
   private readonly springs = Object.fromEntries(MOTION_KEYS.map((k) => [k, new Spring(0)])) as Record<MotionKey, Spring>
@@ -54,7 +61,9 @@ export class OrbEngine {
   private readonly inputEnv = new Float32Array(4)
   private readonly outputEnv = new Float32Array(4)
   private readonly audio: AudioFrame = { level: 0, low: 0, mid: 0, high: 0 }
-  private readonly colorTarget = new Float32Array(PALETTE_SIZE * 3)
+  // Targets for dark and light pages; the frame eases toward their blend at the current lightness.
+  private readonly colorDark = new Float32Array(PALETTE_SIZE * 3)
+  private readonly colorLight = new Float32Array(PALETTE_SIZE * 3)
   private readonly frame: OrbFrame
 
   private cssWidth = 0
@@ -75,19 +84,21 @@ export class OrbEngine {
     this.input = options.input ?? null
     this.output = options.output ?? null
     this.customColors = options.colors
+    this.scheme = options.scheme
     this.appearance = options.appearance ?? 'auto'
     this.maxPixelRatio = options.maxPixelRatio ?? 2
 
     this.frame = {
-      width: 1, height: 1, time: 0, delta: 0, phase: 0, spin: 0, light: 0,
+      width: 1, height: 1, time: 0, delta: 0, phase: 0, spin: 0, light: 0, onset: 0,
+      state: this.current,
       motion: this.motion,
       audio: this.audio,
       colors: new Float32Array(PALETTE_SIZE * 3),
     }
     this.applyMotion(true)
-    this.applyColors(true)
     this.probeAppearance()
     this.frame.light = this.lightTarget
+    this.applyColors(true)
 
     const rect = canvas.getBoundingClientRect()
     this.cssWidth = rect.width
@@ -131,7 +142,7 @@ export class OrbEngine {
 
   setState(state: OrbState) {
     if (state === this.current) return
-    this.current = state
+    this.current = this.frame.state = state
     this.applyMotion()
   }
 
@@ -144,9 +155,15 @@ export class OrbEngine {
     if (!this.customColors) this.applyColors()
   }
 
-  /** Pass `undefined` to return to the variant's palette. Colors always ease, never cut. */
+  /** Pass `undefined` to return to the scheme or the variant's palette. Colors always ease, never cut. */
   setColors(colors: readonly string[] | undefined) {
     this.customColors = colors?.length ? colors : undefined
+    this.applyColors()
+  }
+
+  /** Pass `undefined` to return to the variant's palette. */
+  setScheme(scheme: ColorScheme | undefined) {
+    this.scheme = scheme
     this.applyColors()
   }
 
@@ -201,8 +218,25 @@ export class OrbEngine {
   }
 
   private applyColors(snap = false) {
-    writePalette(this.customColors ?? this.variant.colors, this.colorTarget)
-    if (snap) this.frame.colors.set(this.colorTarget)
+    const { customColors, scheme, variant, colorDark, colorLight } = this
+    if (!customColors && scheme) {
+      const roles = variant.roles ?? DEFAULT_ROLES
+      writePalette(schemeColors(scheme, roles, 'dark'), colorDark)
+      writePalette(schemeColors(scheme, roles, 'light'), colorLight)
+    } else {
+      writePalette(customColors ?? variant.colors, colorDark)
+      colorLight.set(colorDark)
+    }
+    if (snap) this.blendColors(1)
+  }
+
+  /** Moves the frame's colors `share` of the way toward the target for the current page lightness. */
+  private blendColors(share: number) {
+    const { colors, light } = this.frame
+    for (let i = 0; i < colors.length; i++) {
+      const target = this.colorDark[i]! + (this.colorLight[i]! - this.colorDark[i]!) * light
+      colors[i]! += (target - colors[i]!) * share
+    }
   }
 
   private probeAppearance() {
@@ -233,6 +267,10 @@ export class OrbEngine {
     a.low = mixed(1)
     a.mid = mixed(2)
     a.high = mixed(3)
+    // Syllable attacks: the level jumping above its recent average fires an impulse that fades.
+    const attack = clamp01((a.level - this.levelAverage - 0.06) * 5)
+    frame.onset = Math.max(frame.onset * Math.exp(-dt / ONSET_DECAY), attack)
+    this.levelAverage = damp(this.levelAverage, a.level, ONSET_RATE, dt)
 
     const calm = this.reducedMotion.matches ? 0.35 : 1
     frame.delta = dt
@@ -242,9 +280,7 @@ export class OrbEngine {
     // Polled because a theme switch (a class change on <html>) fires no event we can observe cheaply.
     if (this.appearance === 'auto' && (this.probeIn -= dt) <= 0) this.probeAppearance()
     frame.light = damp(frame.light, this.lightTarget, APPEARANCE_RATE, dt)
-    for (let i = 0; i < frame.colors.length; i++) {
-      frame.colors[i] = damp(frame.colors[i], this.colorTarget[i], COLOR_RATE, dt)
-    }
+    this.blendColors(1 - Math.exp(-COLOR_RATE * dt))
   }
 
   /** Envelope follower: fast attack so speech lands immediately, slow release so it breathes out. */

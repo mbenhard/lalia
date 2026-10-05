@@ -10,6 +10,7 @@ uniform float uTime;
 uniform float uPhase;
 uniform float uSpin;
 uniform float uLight;
+uniform float uOnset;
 uniform float uEnergy;
 uniform float uScale;
 uniform float uTurbulence;
@@ -17,6 +18,8 @@ uniform float uSwirl;
 uniform float uGlow;
 uniform float uSaturation;
 uniform float uPulse;
+uniform float uInput;
+uniform float uOutput;
 uniform vec4 uAudio;
 uniform vec3 uColors[4];
 `
@@ -140,7 +143,10 @@ float glowAlpha(float a) {
 
 vec4 orbColor(vec3 lab, float alpha) {
   // Pastels lose contrast against white, so light pages get slightly deeper, richer color.
-  lab = vec3(lab.x - 0.05 * uLight, lab.yz * (1.0 + 0.3 * uLight) * uSaturation);
+  // The boost tapers off for colors that are already vivid, which would otherwise leave sRGB
+  // and clip per channel, skewing hue (orange turns red, lime turns yellow).
+  float vivid = smoothstep(0.06, 0.18, length(lab.yz));
+  lab = vec3(lab.x - 0.05 * uLight, lab.yz * (1.0 + 0.3 * uLight * (1.0 - vivid)) * uSaturation);
   vec3 rgb = pow(clamp(oklabToLinear(lab), 0.0, 1.0), vec3(1.0 / 2.2));
   // Dither hides 8-bit banding in soft gradients.
   rgb = clamp(rgb + grain() / 255.0, 0.0, 1.0);
