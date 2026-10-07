@@ -1,27 +1,36 @@
 {
   "name": "lalia",
-  "version": "0.1.0",
-  "description": "The visual layer for voice AI: fluid, audio-reactive orbs for voice agents.",
+  "version": "0.1.1",
+  "description": "Audio-reactive orbs for voice AI agents: a WebGL voice visualizer for React and plain JavaScript. Works with ElevenLabs, OpenAI Realtime, Gemini Live and LiveKit.",
   "license": "MIT",
   "author": "Marcus (https://offbrand.design)",
   "keywords": [
-    "voice",
-    "agent",
+    "voice-ai",
+    "ai-agent",
+    "voice-agent",
+    "conversational-ai",
+    "voice-assistant",
     "orb",
+    "audio-visualizer",
+    "voice-visualizer",
+    "audio-reactive",
     "webgl",
-    "audio",
-    "visualizer",
+    "shader",
     "react",
     "elevenlabs",
-    "openai",
-    "gemini",
-    "audio-reactive",
-    "voice-agent"
+    "openai-realtime",
+    "gemini-live",
+    "livekit",
+    "pipecat",
+    "vapi",
+    "speech",
+    "voice-ui"
   ],
   "type": "module",
   "sideEffects": false,
   "files": [
-    "dist"
+    "dist",
+    "DOCS.md"
   ],
   "exports": {
     ".": {
