@@ -47,8 +47,7 @@ float shape(vec2 p) {
 
 // Surface height, in units of the body's radius: two slow swells crossing, gently rocking it.
 float height(vec2 s) {
-  float h = 0.01 * sin(dot(s, vec2(2.6, 1.4)) + uPhase * 1.4) + 0.008 * sin(dot(s, vec2(-1.8, 2.5)) - uPhase * 1.1);
-  return h;
+  return 0.01 * sin(dot(s, vec2(2.6, 1.4)) + uPhase * 1.4) + 0.008 * sin(dot(s, vec2(-1.8, 2.5)) - uPhase * 1.1);
 }
 
 // Chrome stays mostly neutral: the scheme lends its hue to the shade and only a whisper of it

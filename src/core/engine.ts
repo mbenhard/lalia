@@ -294,8 +294,14 @@ export class OrbEngine {
     } catch {
       // A sampler that throws reads as silence instead of stopping the orb.
     }
-    if (typeof value === 'number') s.fill(clamp01(value))
-    else for (const [i, v] of [value.level, value.low, value.mid, value.high].entries()) s[i] = clamp01(v)
+    if (typeof value === 'number') {
+      s.fill(clamp01(value))
+    } else {
+      s[0] = clamp01(value.level)
+      s[1] = clamp01(value.low)
+      s[2] = clamp01(value.mid)
+      s[3] = clamp01(value.high)
+    }
     for (let i = 0; i < 4; i++) {
       const tau = s[i] > env[i] ? ATTACK : RELEASE
       env[i] += (s[i] - env[i]) * (1 - Math.exp(-dt / tau))

@@ -1,6 +1,6 @@
 # lalia
 
-Fluid, audio-reactive orbs for voice agents. Nine designs, zero dependencies, raw WebGL2.
+The visual layer for voice AI: fluid, audio-reactive orbs for voice agents. Nine designs, zero dependencies, raw WebGL2.
 
 ```bash
 npm install lalia
@@ -23,6 +23,8 @@ export function AgentOrb(live: { state: OrbState; input?: AudioSampler | null; o
 ```
 
 ```tsx
+import { fromStream } from 'lalia'
+
 <AgentOrb state={state} input={fromStream(micStream)} output={fromStream(agentStream)} />
 ```
 

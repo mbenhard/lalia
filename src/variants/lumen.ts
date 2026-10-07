@@ -6,7 +6,6 @@ void main() {
   vec2 p = orbUV();
   float r = length(p);
   if (r >= 1.0) { fragColor = vec4(0.0); return; }
-  vec2 dir = p / max(r, 1e-4);
   float ang = atan(p.y, p.x);
   float t = uPhase;
   float breathe = 0.5 + 0.5 * sin(t * 1.6);

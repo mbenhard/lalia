@@ -1,8 +1,9 @@
 {
   "name": "lalia",
   "version": "0.1.0",
-  "description": "Fluid, audio-reactive orbs for voice agents.",
+  "description": "The visual layer for voice AI: fluid, audio-reactive orbs for voice agents.",
   "license": "MIT",
+  "author": "Marcus (https://offbrand.design)",
   "keywords": [
     "voice",
     "agent",
@@ -14,12 +15,8 @@
     "elevenlabs",
     "openai",
     "gemini",
-    "voice",
-    "orb",
-    "webgl",
     "audio-reactive",
-    "voice-agent",
-    "react"
+    "voice-agent"
   ],
   "type": "module",
   "sideEffects": false,
@@ -29,37 +26,30 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./variants": {
       "types": "./dist/variants/index.d.ts",
-      "import": "./dist/variants/index.js",
       "default": "./dist/variants/index.js"
     },
     "./schemes": {
       "types": "./dist/schemes.d.ts",
-      "import": "./dist/schemes.js",
       "default": "./dist/schemes.js"
     },
     "./react": {
       "types": "./dist/react/index.d.ts",
-      "import": "./dist/react/index.js",
       "default": "./dist/react/index.js"
     },
     "./adapters/elevenlabs": {
       "types": "./dist/adapters/elevenlabs.d.ts",
-      "import": "./dist/adapters/elevenlabs.js",
       "default": "./dist/adapters/elevenlabs.js"
     },
     "./adapters/openai": {
       "types": "./dist/adapters/openai.d.ts",
-      "import": "./dist/adapters/openai.js",
       "default": "./dist/adapters/openai.js"
     },
     "./adapters/gemini": {
       "types": "./dist/adapters/gemini.d.ts",
-      "import": "./dist/adapters/gemini.js",
       "default": "./dist/adapters/gemini.js"
     },
     "./package.json": "./package.json"
@@ -67,7 +57,8 @@
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm test",
+    "test": "npm run build && node --test test/"
   },
   "peerDependencies": {
     "react": ">=18"
@@ -84,10 +75,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mbenhard/lalia.git",
-    "directory": "packages/orb"
+    "url": "git+https://github.com/mbenhard/lalia.git"
   },
-  "homepage": "https://github.com/mbenhard/lalia#readme",
+  "homepage": "https://lalia.offbrand.design",
   "bugs": {
     "url": "https://github.com/mbenhard/lalia/issues"
   }

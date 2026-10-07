@@ -14,8 +14,6 @@ import { toOklab } from './color.js'
  */
 export type ColorRole = 'highlight' | 'tint' | 'primary' | 'secondary' | 'accent' | 'deep' | 'ink'
 
-export const COLOR_ROLES: readonly ColorRole[] = ['highlight', 'tint', 'primary', 'secondary', 'accent', 'deep', 'ink']
-
 export type SchemeColors = Record<ColorRole, string>
 
 export interface ColorScheme {

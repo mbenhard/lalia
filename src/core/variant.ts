@@ -1,7 +1,7 @@
 import type { AudioFrame } from './audio.js'
 import { FRAGMENT_PRELUDE, FULLSCREEN_VERTEX } from './glsl.js'
 import type { RoleMap } from './scheme.js'
-import { MOTION_KEYS, type Motion, type MotionKey, type MotionOverrides, type OrbState } from './states.js'
+import { MOTION_KEYS, type Motion, type MotionOverrides, type OrbState } from './states.js'
 
 /** Everything a variant needs to draw one frame. Reused across frames; do not keep references. */
 export interface OrbFrame {
@@ -44,12 +44,7 @@ export interface Variant {
   setup(gl: WebGL2RenderingContext): VariantRenderer
 }
 
-interface Program {
-  program: WebGLProgram
-  uniform(name: string): WebGLUniformLocation | null
-}
-
-function createProgram(gl: WebGL2RenderingContext, vertex: string, fragment: string): Program {
+function createProgram(gl: WebGL2RenderingContext, vertex: string, fragment: string): WebGLProgram {
   const compile = (type: number, source: string) => {
     const shader = gl.createShader(type)!
     gl.shaderSource(shader, source)
@@ -70,33 +65,31 @@ function createProgram(gl: WebGL2RenderingContext, vertex: string, fragment: str
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
     throw new Error(`[lalia] link error: ${gl.getProgramInfoLog(program)}`)
   }
-  const locations = new Map<string, WebGLUniformLocation | null>()
-  return {
-    program,
-    uniform(name) {
-      if (!locations.has(name)) locations.set(name, gl.getUniformLocation(program, name))
-      return locations.get(name)!
-    },
-  }
+  return program
 }
 
-const MOTION_UNIFORMS = MOTION_KEYS.map((key) => [key, `u${key[0]!.toUpperCase()}${key.slice(1)}`]) as [
-  MotionKey,
-  string,
-][]
+const MOTION_UNIFORMS = MOTION_KEYS.map((key) => `u${key[0]!.toUpperCase()}${key.slice(1)}`)
 
-/** Uploads the standard uniforms declared in `UNIFORMS`. */
-function setOrbUniforms(gl: WebGL2RenderingContext, p: Program, frame: OrbFrame) {
-  const { audio } = frame
-  gl.uniform2f(p.uniform('uResolution'), frame.width, frame.height)
-  gl.uniform1f(p.uniform('uTime'), frame.time)
-  gl.uniform1f(p.uniform('uPhase'), frame.phase)
-  gl.uniform1f(p.uniform('uSpin'), frame.spin)
-  gl.uniform1f(p.uniform('uLight'), frame.light)
-  gl.uniform1f(p.uniform('uOnset'), frame.onset)
-  for (const [key, name] of MOTION_UNIFORMS) gl.uniform1f(p.uniform(name), frame.motion[key])
-  gl.uniform4f(p.uniform('uAudio'), audio.level, audio.low, audio.mid, audio.high)
-  gl.uniform3fv(p.uniform('uColors'), frame.colors)
+/** Looks up the standard uniforms declared in `UNIFORMS` once, and returns a per-frame uploader. */
+function orbUniforms(gl: WebGL2RenderingContext, program: WebGLProgram) {
+  const at = (name: string) => gl.getUniformLocation(program, name)
+  const resolution = at('uResolution')
+  const [time, phase, spin, light, onset] = ['uTime', 'uPhase', 'uSpin', 'uLight', 'uOnset'].map(at)
+  const motion = MOTION_UNIFORMS.map(at)
+  const audio = at('uAudio')
+  const colors = at('uColors')
+  return (frame: OrbFrame) => {
+    gl.uniform2f(resolution, frame.width, frame.height)
+    gl.uniform1f(time, frame.time)
+    gl.uniform1f(phase, frame.phase)
+    gl.uniform1f(spin, frame.spin)
+    gl.uniform1f(light, frame.light)
+    gl.uniform1f(onset, frame.onset)
+    for (let i = 0; i < MOTION_KEYS.length; i++) gl.uniform1f(motion[i], frame.motion[MOTION_KEYS[i]])
+    const a = frame.audio
+    gl.uniform4f(audio, a.level, a.low, a.mid, a.high)
+    gl.uniform3fv(colors, frame.colors)
+  }
 }
 
 export interface ShaderVariantOptions {
@@ -117,13 +110,14 @@ export function shaderVariant({ name, colors, roles, motion, fragment }: ShaderV
     motion,
     setup(gl) {
       const program = createProgram(gl, FULLSCREEN_VERTEX, FRAGMENT_PRELUDE + fragment)
+      const upload = orbUniforms(gl, program)
       return {
         render(frame) {
-          gl.useProgram(program.program)
-          setOrbUniforms(gl, program, frame)
+          gl.useProgram(program)
+          upload(frame)
           gl.drawArrays(gl.TRIANGLES, 0, 3)
         },
-        dispose: () => gl.deleteProgram(program.program),
+        dispose: () => gl.deleteProgram(program),
       }
     },
   }
