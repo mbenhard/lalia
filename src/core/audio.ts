@@ -58,23 +58,69 @@ export function fromAnalyser(analyser: AnalyserNode): AudioSampler {
   }
 }
 
-/** Taps any node in an audio graph, e.g. the gain node your agent's playback runs through. */
+const nodeSamplers = new WeakMap<AudioNode, AudioSampler>()
+
+/**
+ * Taps any node in an audio graph, e.g. the gain node your agent's playback runs through. The
+ * same node always gives the same sampler, so `output={fromNode(gain)}` inline is fine. Connects
+ * on first read; `dispose` is safe to call twice, and a disposed sampler that is read again
+ * reconnects, so React StrictMode's dispose-then-remount keeps working.
+ */
 export function fromNode(node: AudioNode): AudioSampler {
-  const analyser = node.context.createAnalyser()
-  node.connect(analyser)
-  const sampler: AudioSampler = fromAnalyser(analyser)
-  sampler.dispose = () => node.disconnect(analyser)
+  const cached = nodeSamplers.get(node)
+  if (cached) return cached
+  let analyser: AnalyserNode | null = null
+  let read: AudioSampler | null = null
+  const sampler: AudioSampler = () => {
+    if (!read) {
+      analyser = node.context.createAnalyser()
+      node.connect(analyser)
+      read = fromAnalyser(analyser)
+    }
+    return read()
+  }
+  sampler.dispose = () => {
+    if (analyser) node.disconnect(analyser)
+    analyser = read = null
+  }
+  nodeSamplers.set(node, sampler)
   return sampler
 }
 
 let sharedContext: AudioContext | null = null
+const streamSamplers = new WeakMap<MediaStream, AudioSampler>()
 
-/** Analyses a MediaStream, e.g. the microphone or a remote WebRTC track. */
+/**
+ * Analyses a MediaStream, e.g. the microphone or a remote WebRTC track. The same stream always
+ * gives the same sampler, so `input={fromStream(mic)}` inline is fine. Reads silence until the
+ * stream has an audio track (remote tracks arrive later), and keeps asking the browser to start
+ * audio until it is allowed to (autoplay rules want a click first).
+ */
 export function fromStream(stream: MediaStream, context?: AudioContext): AudioSampler {
-  const ctx = context ?? (sharedContext ??= new AudioContext())
-  if (ctx.state === 'suspended') void ctx.resume()
-  const source = ctx.createMediaStreamSource(stream)
-  const sampler = fromNode(source)
-  sampler.dispose = () => source.disconnect()
+  const cached = context ? undefined : streamSamplers.get(stream)
+  if (cached) return cached
+  let ctx: AudioContext | null = null
+  let source: MediaStreamAudioSourceNode | null = null
+  let read: AudioSampler | null = null
+  let resuming = false
+  const sampler: AudioSampler = () => {
+    if (!read) {
+      if (!stream.getAudioTracks().length) return 0
+      ctx = context ?? (sharedContext ??= new AudioContext())
+      source = ctx.createMediaStreamSource(stream)
+      read = fromNode(source)
+    }
+    if (ctx!.state === 'suspended' && !resuming) {
+      resuming = true
+      void ctx!.resume().catch(() => {}).finally(() => (resuming = false))
+    }
+    return read()
+  }
+  sampler.dispose = () => {
+    read?.dispose?.()
+    source?.disconnect()
+    source = read = null
+  }
+  if (!context) streamSamplers.set(stream, sampler)
   return sampler
 }

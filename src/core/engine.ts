@@ -44,7 +44,7 @@ export class OrbEngine {
   private renderer: VariantRenderer | null = null
   private current: OrbState
   private overrides: MotionOverrides | undefined
-  private transition: SpringConfig
+  private transition = DEFAULT_TRANSITION
   private input: AudioSampler | null
   private output: AudioSampler | null
   private customColors: readonly string[] | undefined
@@ -80,7 +80,7 @@ export class OrbEngine {
     this.variant = options.variant
     this.current = options.state ?? 'idle'
     this.overrides = options.motion
-    this.transition = { ...DEFAULT_TRANSITION, ...options.transition }
+    this.setTransition(options.transition)
     this.input = options.input ?? null
     this.output = options.output ?? null
     this.customColors = options.colors
@@ -128,12 +128,11 @@ export class OrbEngine {
       canvas.addEventListener('webglcontextrestored', this.onContextRestored)
       // A canvas whose previous orb released its context gets it back here.
       if (this.gl.isContextLost()) this.gl.getExtension('WEBGL_lose_context')?.restoreContext()
-      else this.renderer = this.variant.setup(this.gl)
+      else this.renderer = this.setup()
+      this.raf = requestAnimationFrame(this.tick)
     } else {
-      console.warn('[speaking-orb] WebGL2 is not available; the orb will not render.')
+      console.warn('[lalia] WebGL2 is not available; the orb will not render.')
     }
-
-    this.raf = requestAnimationFrame(this.tick)
   }
 
   get state(): OrbState {
@@ -150,7 +149,7 @@ export class OrbEngine {
     if (variant === this.variant) return
     this.variant = variant
     this.renderer?.dispose()
-    this.renderer = this.gl && !this.gl.isContextLost() ? variant.setup(this.gl) : null
+    this.renderer = this.gl && !this.gl.isContextLost() ? this.setup() : null
     this.applyMotion()
     if (!this.customColors) this.applyColors()
   }
@@ -186,7 +185,10 @@ export class OrbEngine {
   }
 
   setTransition(transition: Partial<SpringConfig> | undefined) {
-    this.transition = { ...DEFAULT_TRANSITION, ...transition }
+    this.transition = {
+      stiffness: transition?.stiffness ?? DEFAULT_TRANSITION.stiffness,
+      damping: transition?.damping ?? DEFAULT_TRANSITION.damping,
+    }
   }
 
   destroy() {
@@ -286,9 +288,14 @@ export class OrbEngine {
   /** Envelope follower: fast attack so speech lands immediately, slow release so it breathes out. */
   private follow(sampler: AudioSampler | null, env: Float32Array, dt: number) {
     const s = this.sample
-    const value = sampler ? sampler() : 0
+    let value: AudioFrame | number = 0
+    try {
+      if (sampler) value = sampler()
+    } catch {
+      // A sampler that throws reads as silence instead of stopping the orb.
+    }
     if (typeof value === 'number') s.fill(clamp01(value))
-    else s.set([value.level, value.low, value.mid, value.high])
+    else for (const [i, v] of [value.level, value.low, value.mid, value.high].entries()) s[i] = clamp01(v)
     for (let i = 0; i < 4; i++) {
       const tau = s[i] > env[i] ? ATTACK : RELEASE
       env[i] += (s[i] - env[i]) * (1 - Math.exp(-dt / tau))
@@ -319,6 +326,16 @@ export class OrbEngine {
   }
 
   private onContextRestored = () => {
-    if (this.gl) this.renderer = this.variant.setup(this.gl)
+    this.renderer = this.setup()
+  }
+
+  /** A shader that fails to compile (an old mobile GPU, say) leaves this orb blank rather than throwing into the app. */
+  private setup(): VariantRenderer | null {
+    try {
+      return this.gl && this.variant.setup(this.gl)
+    } catch (error) {
+      console.warn(`[lalia] ${this.variant.name} could not be drawn on this device.`, error)
+      return null
+    }
   }
 }

@@ -1,31 +1,4 @@
-import { fromStream, type AudioSampler } from '../core/audio.js'
 import type { OrbState } from '../core/states.js'
-
-export interface RealtimeAudioOptions {
-  /** Local microphone stream sent to the session. */
-  microphone?: MediaStream
-  /**
-   * Remote stream from `pc.ontrack`. Chrome only feeds a remote WebRTC stream
-   * into Web Audio while it is also playing through a media element, so keep
-   * your `<audio>` element attached.
-   */
-  remote?: MediaStream
-  context?: AudioContext
-}
-
-/** Audio samplers for an OpenAI Realtime session over WebRTC. */
-export function openaiRealtimeAudio({ microphone, remote, context }: RealtimeAudioOptions) {
-  const input: AudioSampler | null = microphone ? fromStream(microphone, context) : null
-  const output: AudioSampler | null = remote ? fromStream(remote, context) : null
-  return {
-    input,
-    output,
-    dispose() {
-      input?.dispose?.()
-      output?.dispose?.()
-    },
-  }
-}
 
 /**
  * Reducer from Realtime server events to an orb state.

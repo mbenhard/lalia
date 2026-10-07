@@ -1,13 +1,9 @@
 import { oklch, type ColorRole, type ColorScheme, type SchemeColors } from './core/scheme.js'
 
 export {
-  COLOR_ROLES,
   createScheme,
   DEFAULT_ROLES,
-  maxChroma,
-  oklch,
   schemeColors,
-  toOklch,
   type ColorRole,
   type ColorScheme,
   type Harmony,

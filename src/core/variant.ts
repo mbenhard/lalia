@@ -1,5 +1,5 @@
 import type { AudioFrame } from './audio.js'
-import { FRAGMENT_PRELUDE, FULLSCREEN_VERTEX, VERTEX_PRELUDE } from './glsl.js'
+import { FRAGMENT_PRELUDE, FULLSCREEN_VERTEX } from './glsl.js'
 import type { RoleMap } from './scheme.js'
 import { MOTION_KEYS, type Motion, type MotionKey, type MotionOverrides, type OrbState } from './states.js'
 
@@ -44,18 +44,18 @@ export interface Variant {
   setup(gl: WebGL2RenderingContext): VariantRenderer
 }
 
-export interface Program {
+interface Program {
   program: WebGLProgram
   uniform(name: string): WebGLUniformLocation | null
 }
 
-export function createProgram(gl: WebGL2RenderingContext, vertex: string, fragment: string): Program {
+function createProgram(gl: WebGL2RenderingContext, vertex: string, fragment: string): Program {
   const compile = (type: number, source: string) => {
     const shader = gl.createShader(type)!
     gl.shaderSource(shader, source)
     gl.compileShader(shader)
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      throw new Error(`[speaking-orb] shader error: ${gl.getShaderInfoLog(shader)}`)
+      throw new Error(`[lalia] shader error: ${gl.getShaderInfoLog(shader)}`)
     }
     return shader
   }
@@ -68,7 +68,7 @@ export function createProgram(gl: WebGL2RenderingContext, vertex: string, fragme
   gl.deleteShader(vs)
   gl.deleteShader(fs)
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    throw new Error(`[speaking-orb] link error: ${gl.getProgramInfoLog(program)}`)
+    throw new Error(`[lalia] link error: ${gl.getProgramInfoLog(program)}`)
   }
   const locations = new Map<string, WebGLUniformLocation | null>()
   return {
@@ -86,7 +86,7 @@ const MOTION_UNIFORMS = MOTION_KEYS.map((key) => [key, `u${key[0]!.toUpperCase()
 ][]
 
 /** Uploads the standard uniforms declared in `UNIFORMS`. */
-export function setOrbUniforms(gl: WebGL2RenderingContext, p: Program, frame: OrbFrame) {
+function setOrbUniforms(gl: WebGL2RenderingContext, p: Program, frame: OrbFrame) {
   const { audio } = frame
   gl.uniform2f(p.uniform('uResolution'), frame.width, frame.height)
   gl.uniform1f(p.uniform('uTime'), frame.time)
@@ -129,4 +129,3 @@ export function shaderVariant({ name, colors, roles, motion, fragment }: ShaderV
   }
 }
 
-export { FRAGMENT_PRELUDE, VERTEX_PRELUDE }

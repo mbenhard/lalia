@@ -1,3 +1,5 @@
+'use client'
+
 import { useEffect, useRef, type CSSProperties } from 'react'
 import { OrbEngine, type OrbOptions } from '../core/engine.js'
 
@@ -83,4 +85,5 @@ export function Orb({
   )
 }
 
-export type { OrbState, Variant, AudioSampler, ColorScheme } from '../index.js'
+export type { OrbState, Variant, AudioSampler } from '../index.js'
+export type { ColorScheme } from '../schemes.js'

@@ -1,43 +1,18 @@
-import type { RoleMap } from '../core/scheme.js'
 import { shaderVariant } from '../core/variant.js'
-import { volume } from './volume.js'
 
 /**
  * How the cloud meets the page.
- * - `soft`   smooth falloff with a trace of grain
  * - `wisp`   tendrils peel off and drift outward like smoke
  * - `haze`   a dense heart with a long, breath-like tail
  * - `sphere` held inside a glass ball
- * - `smoke`  a slow fog volume lit from above, with real depth
  */
-export type MistEdge = 'soft' | 'wisp' | 'haze' | 'sphere' | 'smoke'
+type MistEdge = 'wisp' | 'haze' | 'sphere'
 
-const EDGES: Record<Exclude<MistEdge, 'smoke'>, number> = { soft: 0, wisp: 1, haze: 2, sphere: 3 }
+const EDGES: Record<MistEdge, number> = { wisp: 1, haze: 2, sphere: 3 }
 
-const SMOKE = /* glsl */ `
-float medium(vec3 pos, out vec3 c) {
-  float core = 1.0 - length(pos);
-  float t = uPhase;
-
-  vec3 q = pos;
-  q.xz = rot(uSpin * 0.6 + t * 0.15) * q.xz;
-  q.xy = rot(0.3) * q.xy;
-  q += 0.35 * vec3(
-    snoise(q * 0.9 + vec3(0.0, t * 0.15, 0.0)),
-    snoise(q * 0.9 + vec3(7.0, 0.0, t * 0.15)),
-    snoise(q * 0.9 + vec3(t * 0.15, 13.0, 0.0)));
-  float n = fbm2(q * (0.9 + 0.3 * uTurbulence) + vec3(0.0, t * 0.12, 0.0));
-  c = palette(0.15 * n + 0.3 * (1.0 - core) + t * 0.015);
-  c = vec3(c.x + 0.16 * pos.y + 0.12 * core * (0.5 + uAudio.x), c.yz * 0.85);
-  return 0.7 * smoothstep(-0.2, 0.8, 0.5 * n + core * (1.3 + 0.5 * uAudio.y) - 0.15) * smoothstep(0.0, 0.4, core);
-}
-`
-const SMOKE_COLORS = ['#c9b8ff', '#9fb6ff', '#ffc4dc', '#f6f0ff']
-const SMOKE_ROLES: RoleMap = ['tint', 'primary', 'accent', 'highlight']
-
-const fragment = (edge: Exclude<MistEdge, 'smoke'>) => /* glsl */ `
+const fragment = (edge: MistEdge) => /* glsl */ `
 const int EDGE = ${EDGES[edge]};
-const int SOFT = 0, WISP = 1, HAZE = 2, SPHERE = 3;
+const int WISP = 1, HAZE = 2, SPHERE = 3;
 // Where every tail has fully faded, in orb units, so a loud orb never runs into its canvas.
 const float LIMIT = 0.92;
 
@@ -59,7 +34,8 @@ vec3 cloud(vec2 q, vec2 s, float detail, out float f) {
   vec3 col = mix(uColors[0], uColors[1], smoothstep(-0.7, 0.8, f));
   col = mix(col, uColors[2], 0.8 * smoothstep(-0.45, 0.9, g));
   float lit = dot(s, normalize(vec2(-0.55, 0.8))) + 0.5 * f;
-  col = mix(col, uColors[3], 0.65 * smoothstep(0.25, 1.1, lit));
+  // The key light falls on the cloud itself; past it, thin cloud lit pale reads as grey smoke.
+  col = mix(col, uColors[3], 0.65 * smoothstep(0.25, 1.1, lit) * smoothstep(1.5, 0.9, length(s)));
   col.x += 0.06 * uEnergy * f + 0.08 * uAudio.x;
   return col;
 }
@@ -67,10 +43,10 @@ vec3 cloud(vec2 q, vec2 s, float detail, out float f) {
 void main() {
   vec2 p = orbUV();
   float r = length(p);
+  if (r >= 1.0) { fragColor = vec4(0.0); return; }
   vec2 dir = p / max(r, 1e-4);
-  float px = 2.0 / min(uResolution.x, uResolution.y);
   float t = uPhase;
-  float pulse = uPulse * (0.5 + 0.5 * sin(uTime * 3.0));
+  float pulse = orbPulse();
   float R = (EDGE == SPHERE ? 0.56 : 0.48) * uScale
     * (1.0 + (EDGE == SPHERE ? 0.07 : 0.14) * uAudio.y + 0.06 * uAudio.x - 0.06 * pulse);
 
@@ -96,10 +72,10 @@ void main() {
     col = mix(col, uColors[3], 0.45 * fresnel);
     vec2 h = rot(0.6) * (s - vec2(-0.32, 0.4));
     h *= vec2(2.4, 5.0);
-    col.x += 0.12 * exp(-dot(h, h)) + 0.06 * n;
+    col.x += 0.12 * exp(-dot(h, h));
     col.x += mix(0.05, -0.08, uLight) * smoothstep(0.8, 1.0, 1.0 - z);
     float d = r - R;
-    float body = smoothstep(px, -px, d);
+    float body = smoothstep(orbPx(), -orbPx(), d);
     float glow = glowAlpha(0.3 * uGlow * exp(-max(d, 0.0) * 9.0));
     alpha = body + glow * (1.0 - body);
     col = mix(glowTone(col), col, body / max(alpha, 1e-4));
@@ -109,50 +85,37 @@ void main() {
     // Sampling by position (not angle) avoids starburst spikes; scrolling the third axis
     // against radius makes features drift outward.
     float wn = fbm2(vec3(rot(uSpin * 0.3) * p * 1.7, r * 1.6 - t * 0.4));
-    // The noise only shifts the boundary, so the heart stays solid while the rim frays.
+    // The noise only shifts the boundary, and pushes out further than it bites in, so the heart
+    // stays solid while the rim frays.
+    float fray = (0.5 + 0.3 * uTurbulence) * wn * (wn > 0.0 ? 1.0 : 0.4);
     float x = (r - edge) / R;
-    float density = smoothstep(0.5, -0.3, x - (0.5 + 0.3 * uTurbulence) * wn);
+    float density = smoothstep(0.5, -0.3, x - fray);
     density *= density * (3.0 - 2.0 * density) * smoothstep(1.7 * R, 0.8 * R, r);
-    col = mix(col, uColors[3], 0.35 * smoothstep(edge, edge + 0.4 * R, r));
+    // Thin smoke against a dark page reads grey unless it keeps its color, so there it grows
+    // richer instead of fading to the pale highlight.
+    col = mix(col, uColors[3], 0.35 * uLight * smoothstep(edge, edge + 0.4 * R, r));
+    col.yz *= 1.0 + 0.6 * (1.0 - uLight) * (1.0 - density);
     col.x += 0.05 * n * density;
     alpha = density;
     col = mix(glowTone(col), col, smoothstep(0.0, 0.6, density));
-  } else if (EDGE == HAZE) {
-    float inner = 0.55 * edge;
-    alpha = falloff((r - inner) / (LIMIT - inner)) * (1.0 + 0.12 * n);
-    col.x += 0.05 * n * alpha;
-    col = mix(glowTone(col), col, smoothstep(0.0, 0.6, alpha));
   } else {
-    float soft = 0.16 + 0.1 * uGlow;
-    // A trace of grain in the falloff keeps it airy; the rest of the edge stays smooth.
-    float body = smoothstep(edge + soft, edge - soft * 0.6, r + n * 0.025);
-    // The glow starts under the body, so the hand-off from cloud to glow has no crease, and it
-    // is gone by LIMIT, so it never reaches the canvas edge as a flat smudge.
-    float halo = glowAlpha(0.3 * uGlow * smoothstep(LIMIT, edge - soft, r));
-    col.x += 0.06 * n * body;
-    alpha = body + halo * (1.0 - body);
-    col = mix(glowTone(col), col, body / max(alpha, 1e-4));
+    // Haze.
+    float inner = 0.55 * edge;
+    alpha = falloff((r - inner) / (LIMIT - inner)) * (1.0 + 0.08 * n);
+    col.x += 0.03 * n * alpha;
+    col = mix(glowTone(col), col, smoothstep(0.0, 0.6, alpha));
   }
 
   fragColor = orbColor(col, alpha);
 }
 `
 
-const COLORS = ['#ffb38a', '#ff7a9c', '#b9a3ff', '#fff1e6']
+const mist = (name: string, edge: MistEdge, colors: readonly string[]) =>
+  shaderVariant({ name, colors, fragment: fragment(edge) })
 
-export function createMist(edge: MistEdge = 'soft', colors?: readonly string[]) {
-  const name = edge === 'soft' ? 'mist' : `mist-${edge}`
-  if (edge === 'smoke') {
-    return shaderVariant({ name, colors: colors ?? SMOKE_COLORS, roles: SMOKE_ROLES, fragment: volume(SMOKE, 1.8) })
-  }
-  return shaderVariant({ name, colors: colors ?? COLORS, fragment: fragment(edge) })
-}
-
-/** A grainy, airy gradient cloud whose edge melts away. */
-export const mist = createMist()
-export const mistWisp = createMist('wisp')
-export const mistHaze = createMist('haze')
-/** The same cloud, held inside a glass ball. */
-export const mistSphere = createMist('sphere')
-/** Fog raymarched through a sphere, so it has real depth rather than a painted gradient. */
-export const mistSmoke = createMist('smoke')
+/** Tendrils peel off the cloud and drift outward like smoke. */
+export const wisp = mist('wisp', 'wisp', ['#ffb38a', '#ff7a9c', '#b9a3ff', '#fff1e6'])
+/** A dense heart with a long, breath-like tail. */
+export const haze = mist('haze', 'haze', ['#e665cf', '#8755e6', '#37d2f2', '#ffeee2'])
+/** The cloud, held inside a glass ball. */
+export const cloud = mist('cloud', 'sphere', ['#84dce0', '#c0abe9', '#f7c790', '#fcfbef'])

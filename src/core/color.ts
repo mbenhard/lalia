@@ -24,6 +24,8 @@ function parseRgb(color: string): RGBA | null {
 
 /** Any other CSS color the browser understands, flattened to sRGB by drawing one pixel. */
 function rasterize(color: string): RGBA {
+  // On a server there is no canvas to ask (hex and rgb() are parsed without one).
+  if (typeof document === 'undefined') return [0, 0, 0, 1]
   if (!rasterizer) {
     const canvas = document.createElement('canvas')
     canvas.width = canvas.height = 1
@@ -31,6 +33,8 @@ function rasterize(color: string): RGBA {
   }
   if (!rasterizer) return [0, 0, 0, 0]
   rasterizer.clearRect(0, 0, 1, 1)
+  // Reset first: an invalid color is ignored and would otherwise repeat the previous one.
+  rasterizer.fillStyle = '#0000'
   rasterizer.fillStyle = color
   rasterizer.fillRect(0, 0, 1, 1)
   const [r, g, b, a] = rasterizer.getImageData(0, 0, 1, 1).data

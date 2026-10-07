@@ -27,8 +27,8 @@ export class Spring {
     return this.value
   }
 
-  snap(value = this.target) {
-    this.value = this.target = value
+  snap() {
+    this.value = this.target
     this.velocity = 0
   }
 }
@@ -38,4 +38,5 @@ export function damp(current: number, target: number, rate: number, dt: number):
   return current + (target - current) * (1 - Math.exp(-rate * dt))
 }
 
-export const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x)
+/** Clamps to 0–1; NaN (a broken sampler, say) becomes 0 instead of poisoning every spring. */
+export const clamp01 = (x: number) => (x > 0 ? (x < 1 ? x : 1) : 0)

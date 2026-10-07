@@ -1,59 +1,59 @@
-# speaking-orb
+# lalia
 
-Fluid, audio-reactive orbs for voice agents. Zero dependencies, raw WebGL2, about 1 KB of shader per design.
+Fluid, audio-reactive orbs for voice agents. Nine designs, zero dependencies, raw WebGL2.
+
+```bash
+npm install lalia
+```
+
+## Quick start
+
+Make the orb its own small component, then give it your voice session:
 
 ```tsx
-import { Orb } from 'speaking-orb/react'
-import { mist } from 'speaking-orb/variants'
+'use client'
 
-<Orb variant={mist} state="speaking" output={agentAudio} input={micAudio} size={240} />
+import type { AudioSampler, OrbState } from 'lalia'
+import { Orb } from 'lalia/react'
+import { wisp } from 'lalia/variants'
+
+export function AgentOrb(live: { state: OrbState; input?: AudioSampler | null; output?: AudioSampler | null }) {
+  return <Orb variant={wisp} size={240} {...live} />
+}
 ```
+
+```tsx
+<AgentOrb state={state} input={fromStream(micStream)} output={fromStream(agentStream)} />
+```
+
+- `state` is what the agent is doing (see [States](#states)).
+- `input` is the user's microphone, `output` is the agent's voice (see [Audio](#audio)).
+- With only `state`, the orb still breathes and moves; audio makes it react to speech.
+- Using Next.js App Router: keep `'use client'` at the top of that file. Designs and audio samplers are functions, so they can't cross from a server component.
 
 ## Designs
 
-| Family | Variations |
+| Family | Designs |
 | --- | --- |
-| Mist | `mist` · `mistWisp` · `mistHaze` · `mistSphere` · `mistSmoke` |
-| Silk | `silk` · `silkSimple` |
-| Glass | `glass` · `glassFrosted` · `glassPrism` |
-| Swarm | `swarm` · `swarmSphere` · `swarmRings` · `swarmSaturn` · `swarmOrbit` |
-| Nebula | `nebula` · `nebulaCore` |
-| Lumen | `lumen` · `lumenDuo` |
-| Dots | `dots` · `dotsGrille` · `dotsMatrix` |
+| Mist | `wisp` · `haze` · `cloud` |
+| Silk | `silk` · `satin` |
+| Glass | `glass` · `prism` |
+| Lumen | `lumen` |
+| Chrome | `chrome` |
 
-`families` groups them (first entry is the family default) and `variants` maps names like `'mist-wisp'` to designs. Each design takes up to four colors (any CSS color) via the factories:
-
-```ts
-createMist('wisp', ['#9be7ff', '#6f8bff', '#c29bff', '#ffffff']) // 'soft' | 'wisp' | 'haze' | 'sphere' | 'smoke'
-createNebula('core', colors)  // 'cloud' | 'core'
-createLumen('duo', colors)    // 'pearl' | 'duo'
-createDots('grille', colors)  // 'hex' | 'grille' | 'matrix'
-createSwarm({
-  shape: 'rings',             // 'cloud' | 'sphere' | 'rings'
-  count: 8000,
-  core: 0.5,                  // optional particle planet inside the rings
-  rings: [
-    { tilt: 0.5, turn: 0.35, radius: 0.9, wander: 0.3 }, // wander: how far the ring's plane drifts
-    { tilt: 0.5, turn: 0.35, radius: 1.1, wander: 0.3 },
-  ],
-  poses: {                    // optional per-state layouts; rings glide between them
-    listening: [{ tilt: 1.3, turn: 0, radius: 0.8 }, { tilt: 1.3, turn: 0, radius: 1.1 }],
-  },
-})
-```
+Import them by name from `lalia/variants`. `variants` holds all of them, for picking one by a string: `variants[name]` (undefined for an unknown name).
 
 ## Colors
 
-Pass a `scheme` and every design wears it the way it was meant to. A scheme defines seven roles, brightest to darkest: `highlight`, `tint`, `primary`, `secondary`, `accent`, `deep`, `ink`. Each design maps the roles it needs onto its own color slots, so the same scheme gives Lumen its pale glow and Swarm its deep particles.
+Every design has its own palette. Pass a `scheme` and every design wears it the way it was meant to:
 
 ```tsx
-import { schemes, sage } from 'speaking-orb/schemes'
+import { sage } from 'lalia/schemes'
 
-<Orb variant={mist} scheme={sage} … />
-<Orb variant={mistSmoke} scheme={schemes.nocturne} … />
+<Orb variant={wisp} scheme={sage} … />
 ```
 
-Curated schemes, grouped in `schemeGroups`:
+Curated schemes, grouped in `schemeGroups` and keyed by name in `schemes`:
 
 | Group | Schemes |
 | --- | --- |
@@ -61,28 +61,29 @@ Curated schemes, grouped in `schemeGroups`:
 | Hue | `cobalt` · `iris` · `orchid` · `rose` · `coral` · `ember` · `honey` · `citrus` · `sage` · `jade` · `lagoon` |
 | Atmosphere | `dusk` · `dawn` · `borealis` · `nocturne` · `abyss` · `opal` · `cosmic` |
 
-All schemes share one lightness ladder, so switching schemes never makes an orb heavier or lighter. Each scheme also carries light-page versions of its pale roles, and the orb blends between the two sets as the page changes.
+All schemes share one lightness ladder, so switching schemes never makes an orb heavier or lighter, and each carries light-page versions of its pale tones.
 
-Build a scheme from a brand color. The hue is kept exactly; lightness and chroma are fitted to the orb:
+Brand color? `createScheme` keeps its hue exactly and fits lightness and chroma to the orb:
 
 ```ts
-import { createScheme } from 'speaking-orb/schemes'
+import { createScheme } from 'lalia/schemes'
 
-const brand = createScheme('#ff5a1f', { harmony: 'complementary' }) // 'analogous' | 'complementary' | 'split' | 'triadic'
-const quiet = createScheme('#ff5a1f', { vibrance: 0.4 })            // 0 is nearly grey, 1 is as vivid as sRGB allows
+const brand = createScheme('#ff5a1f')                               // hex or rgb() also work on the server
+const bold = createScheme('#ff5a1f', { harmony: 'complementary' }) // 'analogous' | 'complementary' | 'split' | 'triadic'
+const quiet = createScheme('#ff5a1f', { vibrance: 0.4 })           // 0 is nearly grey, 1 is as vivid as sRGB allows
 ```
 
-`colors` still works and takes precedence: up to four CSS colors, used as-is for the design's slots. Custom designs declare which role each slot plays with `roles`, for example `roles: ['deep', 'primary', 'highlight', 'ink']`.
+`colors` takes up to four CSS colors used as-is and wins over `scheme`.
 
 ## Light and dark pages
 
-On dark pages an orb is a light source; on light pages it behaves like ink, with tinted haze instead of glow and deeper color. By default (`appearance="auto"`) it reads the background behind the canvas and eases between the two when your theme changes. Force either with `appearance="light"` or `"dark"`.
+On dark pages an orb is a light source; on light pages it behaves like ink, with tinted haze instead of glow and deeper color. By default (`appearance="auto"`) it reads the background color of the elements behind it and eases between the two when your theme changes. Over an image or video, or anywhere the guess is wrong, set `appearance="light"` or `"dark"`.
 
 ## States
 
 `idle` · `connecting` · `listening` · `thinking` · `speaking` · `muted`
 
-Every state is a set of motion targets (`energy`, `scale`, `speed`, `turbulence`, `swirl`, `glow`, `saturation`, `pulse`, `input`, `output`). Each one springs toward its target, so switching states is always a glide. Tune per state with `motion`, or tune the spring with `transition`:
+Switching states is always a glide: every value springs toward the new state's targets. Tune a state with `motion`, or the spring with `transition`:
 
 ```tsx
 <Orb motion={{ thinking: { swirl: 1.6 } }} transition={{ stiffness: 40, damping: 10 }} … />
@@ -90,50 +91,122 @@ Every state is a set of motion targets (`energy`, `scale`, `speed`, `turbulence`
 
 ## Audio
 
-`input` and `output` take an `AudioSampler`: a function returning a 0–1 level or `{ level, low, mid, high }`. The orb follows the microphone while listening and the agent while speaking.
+`input` and `output` take an `AudioSampler`: a function the orb calls every frame, returning a 0–1 level or `{ level, low, mid, high }`. The orb follows `input` while listening and `output` while speaking.
 
 ```ts
-import { fromStream, fromNode, createVoiceSimulator } from 'speaking-orb'
+import { fromStream, fromNode, createVoiceSimulator } from 'lalia'
 
-fromStream(micStream)       // any MediaStream
-fromNode(playbackGain)      // any AudioNode
-createVoiceSimulator()      // fake speech for demos
+fromStream(micStream)       // any MediaStream: getUserMedia, a remote WebRTC track
+fromNode(playbackGain)      // any AudioNode your agent's audio plays through
+createVoiceSimulator()      // fake speech, for demos and design work
+```
+
+- The same stream or node always gives the same sampler, so writing `fromStream(…)` or `fromNode(…)` inline in JSX is fine.
+- A stream with no audio track yet (a remote track that arrives later) reads as silence until it has one.
+- Browsers keep audio paused until the user has clicked or tapped the page; the sampler starts by itself once they have. Starting a voice session is usually that click.
+- `sampler.dispose?.()` releases the audio nodes when you're done. A disposed sampler that is read again reconnects.
+
+A complete example with a microphone and audio you play yourself:
+
+```tsx
+'use client'
+
+import { useEffect, useState } from 'react'
+import { fromNode, fromStream, type OrbState } from 'lalia'
+import { Orb } from 'lalia/react'
+import { wisp } from 'lalia/variants'
+
+export function VoiceOrb({ state, playback }: { state: OrbState; playback: GainNode }) {
+  const [mic, setMic] = useState<MediaStream | null>(null)
+
+  useEffect(() => {
+    let stream: MediaStream | undefined
+    navigator.mediaDevices.getUserMedia({ audio: true }).then((s) => setMic((stream = s)))
+    return () => stream?.getTracks().forEach((t) => t.stop())
+  }, [])
+
+  return <Orb variant={wisp} state={state} input={mic && fromStream(mic)} output={fromNode(playback)} />
+}
 ```
 
 ## Adapters
 
-```ts
-// ElevenLabs
-import { elevenLabsAudio, elevenLabsState } from 'speaking-orb/adapters/elevenlabs'
-const conversation = useConversation()
-const audio = useMemo(() => elevenLabsAudio(conversation), [conversation])
-<Orb {...audio} state={elevenLabsState(conversation.status, conversation.isSpeaking)} />
+Ready-made state mapping for three voice platforms.
 
-// OpenAI Realtime (WebRTC)
-import { openaiRealtimeAudio, openaiRealtimeState } from 'speaking-orb/adapters/openai'
-const audio = openaiRealtimeAudio({ microphone, remote })
-dc.onmessage = (e) => setState((s) => openaiRealtimeState(JSON.parse(e.data), s))
+**ElevenLabs** (`@elevenlabs/react`): audio and state both come from the conversation.
 
-// Gemini Live
-import { geminiLiveAudio, geminiLiveState } from 'speaking-orb/adapters/gemini'
-const audio = geminiLiveAudio({ microphone, playback: gainNode })
-session.on('message', (m) => setState((s) => geminiLiveState(m, s)))
+```tsx
+import { elevenLabsAudio, elevenLabsState } from 'lalia/adapters/elevenlabs'
+
+function VoiceOrb() {
+  const conversation = useConversation()
+  const audio = useMemo(() => elevenLabsAudio(conversation), [conversation])
+  return <Orb variant={wisp} {...audio} state={elevenLabsState(conversation.status, conversation.isSpeaking)} />
+}
 ```
+
+**OpenAI Realtime** over WebRTC: feed every data-channel event to the reducer.
+
+```tsx
+import { openaiRealtimeState } from 'lalia/adapters/openai'
+
+function VoiceOrb({ dc, micStream, remoteStream }: { dc: RTCDataChannel; micStream: MediaStream; remoteStream: MediaStream }) {
+  const [state, setState] = useState<OrbState>('idle')
+  useEffect(() => {
+    const onEvent = (e: MessageEvent) => setState((s) => openaiRealtimeState(JSON.parse(e.data), s))
+    dc.addEventListener('message', onEvent)
+    return () => dc.removeEventListener('message', onEvent)
+  }, [dc])
+  return <Orb variant={wisp} state={state} input={fromStream(micStream)} output={fromStream(remoteStream)} />
+}
+```
+
+Chrome only feeds a remote WebRTC stream into Web Audio while it is also playing, so keep your `<audio>` element attached. Over WebSocket there are no `output_audio_buffer.*` events: switch to `listening` yourself when your playback queue drains.
+
+**Gemini Live**: feed every server message to the reducer, from the callbacks you already pass to `ai.live.connect`. The agent's audio is the node you play it through.
+
+```tsx
+import { geminiLiveState } from 'lalia/adapters/gemini'
+
+const [state, setState] = useState<OrbState>('idle')
+// in ai.live.connect({ callbacks: { onmessage(message) { … } } }):
+setState((s) => geminiLiveState(message, s))
+
+<Orb variant={wisp} state={state} input={fromStream(micStream)} output={fromNode(playbackGain)} />
+```
+
+## `<Orb>` props
+
+| Prop | Default | |
+| --- | --- | --- |
+| `variant` | required | A design from `lalia/variants` |
+| `state` | `'idle'` | What the agent is doing |
+| `input`, `output` | none | Microphone and agent audio samplers |
+| `scheme` | the design's palette | A scheme from `lalia/schemes` |
+| `colors` | none | Up to four CSS colors; wins over `scheme` |
+| `size` | `240` | Pixels, or any CSS length. The orb is always square |
+| `appearance` | `'auto'` | `'light'` or `'dark'` to stop reading the page |
+| `motion`, `transition` | tuned | Per-state targets and spring, see [States](#states) |
+| `label` | `"Voice assistant, {state}"` | Accessible name |
+| `className`, `style` | | On the canvas |
 
 ## Without React
 
 ```ts
-import { OrbEngine } from 'speaking-orb'
-import { lumen } from 'speaking-orb/variants'
-const orb = new OrbEngine(canvas, { variant: lumen, state: 'idle' })
+import { OrbEngine } from 'lalia'
+import { lumen } from 'lalia/variants'
+
+const orb = new OrbEngine(canvas, { variant: lumen, state: 'idle' }) // size the canvas with CSS
 orb.setState('listening')
 orb.destroy() // also releases the WebGL context
 ```
 
+The constructor takes the same options as the props above (except `size`, `className`, `style` and `label`). Change them later with `setState`, `setVariant`, `setScheme`, `setColors`, `setInput`, `setOutput`, `setMotion`, `setTransition` and `setAppearance`.
+
 ## Custom designs
 
 ```ts
-import { shaderVariant } from 'speaking-orb'
+import { shaderVariant } from 'lalia'
 
 export const dot = shaderVariant({
   name: 'dot',
@@ -144,3 +217,9 @@ export const dot = shaderVariant({
   }`,
 })
 ```
+
+## Good to know
+
+- ESM only. Needs WebGL2; without it the orb renders nothing and logs a warning.
+- Browsers allow about 16 live WebGL contexts per page, one per orb. Unmounted orbs release theirs.
+- An orb skips drawing while it is off screen.

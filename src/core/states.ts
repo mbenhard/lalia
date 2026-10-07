@@ -62,6 +62,9 @@ export const DEFAULT_MOTION: Record<OrbState, Motion> = {
 
 export function resolveMotion(state: OrbState, ...layers: (MotionOverrides | undefined)[]): Motion {
   const motion = { ...DEFAULT_MOTION[state] }
-  for (const layer of layers) Object.assign(motion, layer?.[state])
+  for (const layer of layers) {
+    // An override left undefined keeps the value below it rather than erasing it.
+    for (const [key, value] of Object.entries(layer?.[state] ?? {})) if (value !== undefined) motion[key as keyof Motion] = value
+  }
   return motion
 }

@@ -73,10 +73,11 @@ float snoise(vec3 v) {
   return 42.0 * dot(m * m, vec4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
 }
 
+// Three octaves: a fourth is finer than the grain laid over every soft surface, so it never shows.
 float fbm(vec3 p) {
   float sum = 0.0;
   float amp = 0.5;
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 3; i++) {
     sum += amp * snoise(p);
     p = p * 2.02 + 17.0;
     amp *= 0.5;
@@ -105,9 +106,20 @@ vec3 palette(float t) {
 export const OUTPUT = /* glsl */ `
 out vec4 fragColor;
 
-// Orb space: origin at the center, radius 1 touches the shorter canvas edge.
+// Orb space: origin at the center, radius 1 touches the shorter canvas edge. orbColor() clears
+// everything at radius 1 and beyond, so a variant may return early there.
 vec2 orbUV() {
   return (gl_FragCoord.xy - 0.5 * uResolution) / (0.5 * min(uResolution.x, uResolution.y));
+}
+
+// One device pixel in orb units.
+float orbPx() {
+  return 2.0 / min(uResolution.x, uResolution.y);
+}
+
+// The "connecting" breath: 0 to uPulse and back, about twice a second.
+float orbPulse() {
+  return uPulse * (0.5 + 0.5 * sin(uTime * 3.0));
 }
 
 float hash12(vec2 p) {
@@ -132,6 +144,22 @@ vec3 oklabToLinear(vec3 c) {
    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s);
 }
 
+vec3 linearToOklab(vec3 c) {
+  vec3 lms = pow(max(mat3(
+    0.4122214708, 0.2119034982, 0.0883024619,
+    0.5363325363, 0.6806995451, 0.2817188376,
+    0.0514459929, 0.1073969566, 0.6299787005) * c, 0.0), vec3(1.0 / 3.0));
+  return mat3(
+    0.2104542553, 1.9779984951, 0.0259040371,
+    0.7936177850, -2.4285922050, 0.7827717662,
+    -0.0040720468, 0.4505937099, -0.8086757660) * lms;
+}
+
+// The exact sRGB curve, matching how palette colors are decoded, so a hex color renders as itself.
+vec3 linearToSrgb(vec3 c) {
+  return mix(12.92 * c, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+}
+
 // A glow is emitted light on dark pages; on light pages it becomes a deeper, tinted haze.
 vec3 glowTone(vec3 lab) {
   return mix(lab, vec3(lab.x - 0.12, lab.yz * 1.5), uLight);
@@ -147,7 +175,7 @@ vec4 orbColor(vec3 lab, float alpha) {
   // and clip per channel, skewing hue (orange turns red, lime turns yellow).
   float vivid = smoothstep(0.06, 0.18, length(lab.yz));
   lab = vec3(lab.x - 0.05 * uLight, lab.yz * (1.0 + 0.3 * uLight * (1.0 - vivid)) * uSaturation);
-  vec3 rgb = pow(clamp(oklabToLinear(lab), 0.0, 1.0), vec3(1.0 / 2.2));
+  vec3 rgb = linearToSrgb(clamp(oklabToLinear(lab), 0.0, 1.0));
   alpha = clamp(alpha * smoothstep(1.0, 0.75, length(orbUV())), 0.0, 1.0);
   // Dither hides 8-bit banding in soft gradients. It goes on after premultiplying, because a
   // faint tail is quantized in alpha too and those steps show as rings on light pages. Color
@@ -160,12 +188,13 @@ vec4 orbColor(vec3 lab, float alpha) {
   float a = clamp(alpha + da * d * min((1.0 - alpha) * 255.0, 1.0), 0.0, 1.0);
   return vec4(clamp(rgb * alpha + dc * d, 0.0, a), a);
 }
-`
 
-export const VERTEX_PRELUDE = `#version 300 es
-precision highp float;
-${UNIFORMS}
-${NOISE}
+// A solid body laid over its glow. The color follows the body where it is solid and hands off
+// to the glow color across the soft edge, so there is no seam between them.
+vec4 orbComposite(vec3 bodyColor, float body, vec3 glowColor, float glow) {
+  float alpha = body + glow * (1.0 - body);
+  return orbColor(mix(glowColor, bodyColor, body / max(alpha, 1e-4)), alpha);
+}
 `
 
 export const FRAGMENT_PRELUDE = `#version 300 es

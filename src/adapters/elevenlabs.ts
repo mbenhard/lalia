@@ -15,7 +15,6 @@ export interface ElevenLabsConversation {
 export interface ElevenLabsAudioOptions {
   /** Sample rate behind the SDK's analysers, used to map bins to speech bands. Default 16000. */
   sampleRate?: number
-  gain?: number
 }
 
 /**
@@ -27,18 +26,15 @@ export interface ElevenLabsAudioOptions {
  */
 export function elevenLabsAudio(
   conversation: ElevenLabsConversation,
-  { sampleRate = 16000, gain = 1 }: ElevenLabsAudioOptions = {},
+  { sampleRate = 16000 }: ElevenLabsAudioOptions = {},
 ): { input: AudioSampler; output: AudioSampler } {
   const sampler = (volume: () => number, spectrum: () => Uint8Array | undefined): AudioSampler => {
     const frame: AudioFrame = { level: 0, low: 0, mid: 0, high: 0 }
     return () => {
-      frame.level = Math.min(1, volume() * gain)
+      frame.level = volume()
       const data = spectrum()
       if (data?.length) {
         bandsFromBytes(data, sampleRate / 2 / data.length, frame)
-        frame.low = Math.min(1, frame.low * gain)
-        frame.mid = Math.min(1, frame.mid * gain)
-        frame.high = Math.min(1, frame.high * gain)
       } else {
         frame.low = frame.mid = frame.high = frame.level
       }

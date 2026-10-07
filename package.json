@@ -1,7 +1,20 @@
 {
-  "name": "speaking-orb",
+  "name": "lalia",
   "version": "0.1.0",
   "description": "Fluid, audio-reactive orbs for voice agents.",
+  "license": "MIT",
+  "keywords": [
+    "voice",
+    "agent",
+    "orb",
+    "webgl",
+    "audio",
+    "visualizer",
+    "react",
+    "elevenlabs",
+    "openai",
+    "gemini"
+  ],
   "type": "module",
   "sideEffects": false,
   "files": [
@@ -10,36 +23,45 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./variants": {
       "types": "./dist/variants/index.d.ts",
-      "import": "./dist/variants/index.js"
+      "import": "./dist/variants/index.js",
+      "default": "./dist/variants/index.js"
     },
     "./schemes": {
       "types": "./dist/schemes.d.ts",
-      "import": "./dist/schemes.js"
+      "import": "./dist/schemes.js",
+      "default": "./dist/schemes.js"
     },
     "./react": {
       "types": "./dist/react/index.d.ts",
-      "import": "./dist/react/index.js"
+      "import": "./dist/react/index.js",
+      "default": "./dist/react/index.js"
     },
     "./adapters/elevenlabs": {
       "types": "./dist/adapters/elevenlabs.d.ts",
-      "import": "./dist/adapters/elevenlabs.js"
+      "import": "./dist/adapters/elevenlabs.js",
+      "default": "./dist/adapters/elevenlabs.js"
     },
     "./adapters/openai": {
       "types": "./dist/adapters/openai.d.ts",
-      "import": "./dist/adapters/openai.js"
+      "import": "./dist/adapters/openai.js",
+      "default": "./dist/adapters/openai.js"
     },
     "./adapters/gemini": {
       "types": "./dist/adapters/gemini.d.ts",
-      "import": "./dist/adapters/gemini.js"
-    }
+      "import": "./dist/adapters/gemini.js",
+      "default": "./dist/adapters/gemini.js"
+    },
+    "./package.json": "./package.json"
   },
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
     "react": ">=18"
