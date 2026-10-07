@@ -13,7 +13,13 @@
     "react",
     "elevenlabs",
     "openai",
-    "gemini"
+    "gemini",
+    "voice",
+    "orb",
+    "webgl",
+    "audio-reactive",
+    "voice-agent",
+    "react"
   ],
   "type": "module",
   "sideEffects": false,
@@ -75,5 +81,14 @@
     "@types/react": "^19.3.0",
     "react": "^19.3.0",
     "typescript": "^7.0.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mbenhard/lalia.git",
+    "directory": "packages/orb"
+  },
+  "homepage": "https://github.com/mbenhard/lalia#readme",
+  "bugs": {
+    "url": "https://github.com/mbenhard/lalia/issues"
   }
 }
