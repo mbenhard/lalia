@@ -17,7 +17,8 @@ export type MotionKey = (typeof MOTION_KEYS)[number]
 
 /**
  * The parameters a state steers. Each one springs toward its target, so any
- * state change is a continuous glide. Values are roughly 0–1.
+ * state change is a continuous glide; `input` and `output` fade in ~40 ms
+ * instead, so speech is never muted while the look catches up. Values are roughly 0–1.
  *
  * - `energy`      overall liveliness
  * - `scale`       size multiplier

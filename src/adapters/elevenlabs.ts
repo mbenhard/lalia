@@ -1,4 +1,4 @@
-import { bandsFromBytes, type AudioFrame, type AudioSampler } from '../core/audio.js'
+import { autoRange, bandsFromBytes, type AudioFrame, type AudioSampler } from '../core/audio.js'
 import type { OrbState } from '../core/states.js'
 
 /**
@@ -17,7 +17,12 @@ export interface ElevenLabsAudioOptions {
   sampleRate?: number
 }
 
+const cache = new WeakMap<ElevenLabsConversation, { input: AudioSampler; output: AudioSampler }>()
+
 /**
+ * The same conversation always gives the same samplers, so their auto-range carries over when
+ * this is called again.
+ *
  * ```tsx
  * const conversation = useConversation()
  * const audio = useMemo(() => elevenLabsAudio(conversation), [conversation])
@@ -28,9 +33,13 @@ export function elevenLabsAudio(
   conversation: ElevenLabsConversation,
   { sampleRate = 16000 }: ElevenLabsAudioOptions = {},
 ): { input: AudioSampler; output: AudioSampler } {
+  const cached = cache.get(conversation)
+  if (cached) return cached
   const sampler = (volume: () => number, spectrum: () => Uint8Array | undefined): AudioSampler => {
     const frame: AudioFrame = { level: 0, low: 0, mid: 0, high: 0 }
-    return () => {
+    // The SDK's volume is its own scale, so it is auto-ranged like the built-in samplers. It
+    // averages hundreds of bins, smooth enough that a narrower minimum span stays calm.
+    return autoRange(() => {
       frame.level = volume()
       const data = spectrum()
       if (data?.length) {
@@ -39,9 +48,9 @@ export function elevenLabsAudio(
         frame.low = frame.mid = frame.high = frame.level
       }
       return frame
-    }
+    }, 0.1)
   }
-  return {
+  const audio = {
     input: sampler(
       () => conversation.getInputVolume(),
       () => conversation.getInputByteFrequencyData?.(),
@@ -51,6 +60,8 @@ export function elevenLabsAudio(
       () => conversation.getOutputByteFrequencyData?.(),
     ),
   }
+  cache.set(conversation, audio)
+  return audio
 }
 
 export function elevenLabsState(status: string, isSpeaking: boolean): OrbState {

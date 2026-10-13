@@ -111,8 +111,8 @@ void main() {
   if (r >= 1.0) { fragColor = vec4(0.0); return; }
   placeSources();
   vec2 dir = p / max(r, 1e-4);
-  float wobble = snoise(vec3(dir, uPhase * 0.5)) * (0.006 + 0.01 * uTurbulence + 0.025 * uAudio.y);
-  float R = 0.56 * uScale * (1.0 + 0.06 * uAudio.x - 0.05 * orbPulse() + wobble);
+  float wobble = snoise(vec3(dir, uPhase * 0.5)) * (0.006 + 0.01 * uTurbulence + 0.035 * uAudio.y);
+  float R = 0.56 * uScale * (1.0 + 0.09 * uAudio.x - 0.05 * orbPulse() + wobble);
 
   vec2 s = p / R;
   float edge = 1.0 - sqrt(max(1.0 - dot(s, s), 0.0));

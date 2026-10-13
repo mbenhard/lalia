@@ -57,8 +57,8 @@ void main() {
   if (r >= 1.0) { fragColor = vec4(0.0); return; }
   float t = uPhase * 0.5;
   vec2 dir = p / max(r, 1e-4);
-  float wobble = snoise(vec3(dir * 1.2, uPhase * 0.6)) * (0.01 + 0.015 * uTurbulence + 0.025 * uAudio.y);
-  float R = 0.58 * uScale * (1.0 + 0.07 * uAudio.x - 0.05 * orbPulse() + wobble);
+  float wobble = snoise(vec3(dir * 1.2, uPhase * 0.6)) * (0.01 + 0.015 * uTurbulence + 0.035 * uAudio.y);
+  float R = 0.58 * uScale * (1.0 + 0.1 * uAudio.x - 0.05 * orbPulse() + wobble);
 
   float d = r - R;
   float body = smoothstep(orbPx(), -orbPx(), d);

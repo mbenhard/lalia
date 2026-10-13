@@ -6,7 +6,7 @@ import { variants } from '../dist/variants/index.js'
 import { elevenLabsAudio, elevenLabsState } from '../dist/adapters/elevenlabs.js'
 import { geminiLiveState } from '../dist/adapters/gemini.js'
 import { openaiRealtimeState } from '../dist/adapters/openai.js'
-import { bandsFromBytes, levelFromRms } from '../dist/core/audio.js'
+import { autoRange, bandsFromBytes, levelFromRms } from '../dist/core/audio.js'
 import { parseColor, toOklab, writePalette } from '../dist/core/color.js'
 import { maxChroma, oklch, toOklch } from '../dist/core/scheme.js'
 import { clamp01, Spring } from '../dist/core/spring.js'
@@ -15,6 +15,19 @@ import { resolveMotion } from '../dist/core/states.js'
 const HEX = /^#[0-9a-f]{6}$/
 const close = (a, b, eps, msg) => assert.ok(Math.abs(a - b) <= eps, `${msg ?? ''} ${a} ≉ ${b}`)
 const hueGap = (a, b) => Math.abs(((a - b + 540) % 360) - 180)
+
+/** Runs `fn` with a clock that advances one 60 fps frame per `tick()`. */
+function withClock(fn) {
+  const real = performance.now
+  let now = 1000
+  performance.now = () => now
+  try {
+    return fn(() => (now += 1000 / 60))
+  } finally {
+    performance.now = real
+  }
+}
+const frameOf = (v) => ({ level: v, low: v, mid: v, high: v })
 
 test('parseColor reads hex and rgb() without a DOM', () => {
   assert.deepEqual(parseColor('#fff'), [1, 1, 1, 1])
@@ -104,9 +117,47 @@ test('clamp01 and Spring', () => {
 test('audio helpers', () => {
   assert.equal(levelFromRms(0), 0)
   assert.equal(levelFromRms(1), 1)
+  // A hot TTS syllable (-12 dBFS) is no longer pinned at the top.
+  assert.ok(levelFromRms(10 ** (-12 / 20)) < 0.9)
   const frame = { level: 0, low: 0, mid: 0, high: 0 }
   bandsFromBytes(new Uint8Array(512).fill(255), 8000 / 512, frame)
   assert.deepEqual([frame.low, frame.mid, frame.high], [1, 1, 1])
+})
+
+test('autoRange stretches a narrow voice to the full range and keeps steady noise near 0', () => {
+  withClock((tick) => {
+    let x = 0
+    const sample = autoRange(() => frameOf(x))
+    // Steady room noise reads as silence from the very first frame.
+    x = 0.3
+    assert.equal(sample().level, 0, 'first read')
+    for (let i = 0; i < 120; i++, tick()) assert.ok(sample().level < 0.02, 'steady noise')
+    // Syllables 25 dB over their valleys, all near the top (a hot TTS voice), swing the full range.
+    const seen = []
+    for (let i = 0; i < 600; i++, tick()) {
+      x = i % 12 < 6 ? 0.9 : 0.55
+      seen.push(sample().level)
+    }
+    const late = seen.slice(300)
+    assert.ok(Math.max(...late) > 0.9, `peaks ${Math.max(...late)}`)
+    assert.ok(Math.min(...late) < 0.2, `valleys ${Math.min(...late)}`)
+    for (const v of seen) assert.ok(v >= 0 && v <= 1)
+  })
+})
+
+test('autoRange advances once per frame however many orbs read it', () => {
+  withClock((tick) => {
+    let reads = 0
+    let x = 0
+    const sample = autoRange(() => (reads++, frameOf(x)))
+    for (let i = 0; i < 60; i++, tick()) sample()
+    x = 1
+    tick()
+    const first = sample().level
+    assert.equal(sample().level, first)
+    assert.equal(sample().level, first)
+    assert.equal(reads, 61)
+  })
 })
 
 test('voice simulator stays within 0–1', () => {
@@ -133,9 +184,23 @@ test('ElevenLabs adapter', () => {
   assert.equal(elevenLabsState('connected', true), 'speaking')
   assert.equal(elevenLabsState('connected', false), 'listening')
   assert.equal(elevenLabsState('disconnected', true), 'idle')
-  const { input, output } = elevenLabsAudio({ getInputVolume: () => 0.4, getOutputVolume: () => 0.8 })
-  assert.equal(input().level, 0.4)
-  assert.equal(output().high, 0.8)
+  withClock((tick) => {
+    let volume = 0
+    const { input, output } = elevenLabsAudio({ getInputVolume: () => 0.4, getOutputVolume: () => volume })
+    // Volume without a spectrum fills every band, auto-ranged: steady reads as silence...
+    for (let i = 0; i < 120; i++, tick()) input()
+    assert.ok(input().level < 0.02)
+    // ...and the SDK's small volumes (0.1–0.25 here) still swing most of the range.
+    let top = 0
+    for (let i = 0; i < 300; i++, tick()) {
+      volume = i % 12 < 6 ? 0.25 : 0.1
+      top = Math.max(top, output().high)
+    }
+    assert.ok(top > 0.6, `top ${top}`)
+  })
+  // The same conversation keeps its samplers, and with them their auto-range.
+  const conversation = { getInputVolume: () => 0, getOutputVolume: () => 0 }
+  assert.equal(elevenLabsAudio(conversation), elevenLabsAudio(conversation))
 })
 
 test('OpenAI Realtime reducer', () => {

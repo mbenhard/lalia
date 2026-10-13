@@ -85,7 +85,7 @@ On dark pages an orb is a light source; on light pages it behaves like ink, with
 
 `idle` · `connecting` · `listening` · `thinking` · `speaking` · `muted`
 
-Switching states is always a glide: every value springs toward the new state's targets. Tune a state with `motion`, or the spring with `transition`:
+Switching states is always a glide: every value springs toward the new state's targets, except the audio weights, which switch in ~40 ms (see [Audio](#audio)). Tune a state with `motion`, or the spring with `transition`:
 
 ```tsx
 <Orb motion={{ thinking: { swirl: 1.6 } }} transition={{ stiffness: 40, damping: 10 }} … />
@@ -107,6 +107,8 @@ createVoiceSimulator()      // fake speech, for demos and design work
 - A stream with no audio track yet (a remote track that arrives later) reads as silence until it has one.
 - Browsers keep audio paused until the user has clicked or tapped the page; the sampler starts by itself once they have. Starting a voice session is usually that click.
 - `sampler.dispose?.()` releases the audio nodes when you're done. A disposed sampler that is read again reconnects.
+- `fromStream`, `fromNode` and the ElevenLabs adapter auto-range: each voice is stretched between its own recent quiet and loud, so a loud TTS voice and a quiet laptop mic both move the orb fully, and steady room noise reads as silence. A sampler you write yourself is used as-is.
+- The orb switches between `input` and `output` within ~40 ms of a state change, so the first syllable of a turn lands even while the look is still easing over.
 
 A complete example with a microphone and audio you play yourself:
 

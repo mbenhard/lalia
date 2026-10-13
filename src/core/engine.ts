@@ -19,7 +19,7 @@ export interface OrbOptions {
   output?: AudioSampler | null
   /** Per-state motion tweaks, layered over the variant's own. */
   motion?: MotionOverrides
-  /** Spring used for every state transition. */
+  /** Spring used for every state transition. Audio weights (`input`, `output`) switch faster on their own. */
   transition?: Partial<SpringConfig>
   /** Default `auto`: adapts to the background behind the canvas. */
   appearance?: Appearance
@@ -29,6 +29,11 @@ export interface OrbOptions {
 
 const owners = new WeakMap<HTMLCanvasElement, OrbEngine>()
 
+// Audio weights fade with these instead of the transition spring: in fast, so a voice lands on
+// its first syllable rather than a second into the turn (~40 ms to 63%), and out a little
+// slower, so the end of a turn eases off instead of cutting (~125 ms).
+const GATE_IN = 25
+const GATE_OUT = 8
 const ATTACK = 0.03
 const RELEASE = 0.2
 const ONSET_DECAY = 0.25
@@ -258,7 +263,13 @@ export class OrbEngine {
 
   private update(dt: number) {
     const { motion: m, audio: a, frame } = this
-    for (const key of MOTION_KEYS) m[key] = this.springs[key].step(dt, this.transition)
+    for (const key of MOTION_KEYS) {
+      const spring = this.springs[key]
+      if (key === 'input' || key === 'output') {
+        const rate = spring.target > spring.value ? GATE_IN : GATE_OUT
+        m[key] = spring.value = damp(spring.value, spring.target, rate, dt)
+      } else m[key] = spring.step(dt, this.transition)
+    }
 
     this.follow(this.input, this.inputEnv, dt)
     this.follow(this.output, this.outputEnv, dt)

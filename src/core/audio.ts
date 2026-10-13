@@ -1,4 +1,4 @@
-import { clamp01 } from './spring.js'
+import { clamp01, damp } from './spring.js'
 
 /** Loudness and three speech bands, each 0–1. */
 export interface AudioFrame {
@@ -31,23 +31,72 @@ export function bandsFromBytes(data: Uint8Array, hzPerBin: number, out: AudioFra
   }
 }
 
-/** Maps RMS amplitude to 0–1 on a decibel scale, which tracks perceived loudness. */
+/**
+ * Maps RMS amplitude to 0–1 on a decibel scale (-70 to 0 dBFS), which tracks perceived loudness.
+ * Wide on purpose: TTS voices are mastered hot, and a narrower window pins their syllables at 1.
+ */
 export function levelFromRms(rms: number) {
   const db = 20 * Math.log10(rms + 1e-7)
-  return clamp01((db + 60) / 45)
+  return clamp01((db + 70) / 70)
+}
+
+const KEYS = ['level', 'low', 'mid', 'high'] as const
+// Several orbs and meters can read one sampler each frame; reads closer together than this are
+// the same frame, so the auto-range advances once per frame however many read it.
+const SAME_FRAME = 4
+const FLOOR_FALL = 8
+const FLOOR_RISE = 2.5
+const PEAK_FALL = 0.3
+const MIN_RANGE = 0.2
+const GATE = 0.04
+const CURVE = 1.4
+
+/**
+ * Auto-range: tracks each channel's recent floor (the dips between syllables, or room noise) and
+ * peak, and stretches the span between them to 0–1, so a hot TTS voice and a quiet laptop mic
+ * both swing the full range. The floor climbs fast enough to sit in the valleys of continuous
+ * speech, the curve lets stressed syllables stand out, and `minRange` (the narrowest span ever
+ * stretched to 0–1) keeps room noise from being blown up into motion. On a TTS clip the smoothed
+ * level while voiced goes from mean 0.95 / sd 0.09 (a plain decibel mapping, mostly pinned) to
+ * 0.66 / 0.26; the voice simulator sits at 0.62 / 0.22.
+ */
+export function autoRange(read: () => AudioFrame, minRange = MIN_RANGE): AudioSampler {
+  const out: AudioFrame = { level: 0, low: 0, mid: 0, high: 0 }
+  const floor: AudioFrame = { level: 0, low: 0, mid: 0, high: 0 }
+  const peak: AudioFrame = { level: 0, low: 0, mid: 0, high: 0 }
+  let last = 0
+  return () => {
+    const now = performance.now()
+    if (last && now - last < SAME_FRAME) return out
+    const first = !last
+    const dt = first ? 1 / 60 : Math.min((now - last) / 1000, 0.1)
+    last = now
+    const raw = read()
+    for (const key of KEYS) {
+      const x = clamp01(raw[key])
+      // Seeded from the first reading: steady noise is silent at once, and speech already under
+      // way registers at its next dip instead of after the floor has fallen from the top.
+      if (first) floor[key] = peak[key] = x
+      floor[key] = damp(floor[key], x, x < floor[key] ? FLOOR_FALL : FLOOR_RISE, dt)
+      peak[key] = x > peak[key] ? x : damp(peak[key], floor[key], PEAK_FALL, dt)
+      const bottom = floor[key] + GATE
+      out[key] = clamp01((x - bottom) / Math.max(peak[key] - bottom, minRange)) ** CURVE
+    }
+    return out
+  }
 }
 
 export function fromAnalyser(analyser: AnalyserNode): AudioSampler {
   analyser.fftSize = 1024
-  analyser.minDecibels = -90
-  analyser.maxDecibels = -25
+  analyser.minDecibels = -100
+  analyser.maxDecibels = -10
   analyser.smoothingTimeConstant = 0.6
   const wave = new Float32Array(analyser.fftSize)
   const spectrum = new Uint8Array(analyser.frequencyBinCount)
   const hzPerBin = analyser.context.sampleRate / analyser.fftSize
   const frame: AudioFrame = { level: 0, low: 0, mid: 0, high: 0 }
 
-  return () => {
+  return autoRange(() => {
     analyser.getFloatTimeDomainData(wave)
     let sum = 0
     for (let i = 0; i < wave.length; i++) sum += wave[i] * wave[i]
@@ -55,7 +104,7 @@ export function fromAnalyser(analyser: AnalyserNode): AudioSampler {
     analyser.getByteFrequencyData(spectrum)
     bandsFromBytes(spectrum, hzPerBin, frame)
     return frame
-  }
+  })
 }
 
 const nodeSamplers = new WeakMap<AudioNode, AudioSampler>()

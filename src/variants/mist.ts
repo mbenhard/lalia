@@ -48,7 +48,7 @@ void main() {
   float t = uPhase;
   float pulse = orbPulse();
   float R = (EDGE == SPHERE ? 0.56 : 0.48) * uScale
-    * (1.0 + (EDGE == SPHERE ? 0.07 : 0.14) * uAudio.y + 0.06 * uAudio.x - 0.06 * pulse);
+    * (1.0 + (EDGE == SPHERE ? 0.07 : 0.14) * uAudio.y + 0.09 * uAudio.x - 0.06 * pulse);
 
   vec2 s = p / R;
   float z = sqrt(max(1.0 - dot(s, s), 0.0));

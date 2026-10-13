@@ -1,6 +1,6 @@
 {
   "name": "lalia",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Audio-reactive orbs for voice AI agents: a WebGL voice visualizer for React and plain JavaScript. Works with ElevenLabs, OpenAI Realtime, Gemini Live and LiveKit.",
   "license": "MIT",
   "author": "Marcus (https://offbrand.design)",
